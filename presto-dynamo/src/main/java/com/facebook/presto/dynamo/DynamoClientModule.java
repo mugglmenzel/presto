@@ -34,6 +34,7 @@ import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
 import com.facebook.presto.dynamo.aws.CachingDynamoAwsMetadataProvider;
 import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
+import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
 import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.Provides;

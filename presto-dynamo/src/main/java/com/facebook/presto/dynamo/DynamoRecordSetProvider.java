@@ -24,6 +24,7 @@ import java.util.List;
 import javax.inject.Inject;
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
+import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
 import com.facebook.presto.spi.ConnectorColumnHandle;
 import com.facebook.presto.spi.ConnectorRecordSetProvider;
 import com.facebook.presto.spi.ConnectorSplit;

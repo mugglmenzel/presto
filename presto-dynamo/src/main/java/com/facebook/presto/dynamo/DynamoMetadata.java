@@ -33,6 +33,7 @@ import java.util.Map;
 import javax.inject.Inject;
 
 import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
+import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorColumnHandle;
 import com.facebook.presto.spi.ConnectorInsertTableHandle;

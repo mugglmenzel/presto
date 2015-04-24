@@ -27,6 +27,7 @@ import javax.inject.Singleton;
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
+import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
 import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.Provides;

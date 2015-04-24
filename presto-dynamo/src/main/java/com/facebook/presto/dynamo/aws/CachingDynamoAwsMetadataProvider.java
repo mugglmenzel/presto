@@ -29,7 +29,6 @@ import javax.inject.Inject;
 
 import org.weakref.jmx.Managed;
 
-import com.facebook.presto.dynamo.DynamoAwsMetadataProvider;
 import com.facebook.presto.dynamo.DynamoClientConfig;
 import com.facebook.presto.dynamo.ForDynamo;
 import com.facebook.presto.spi.NotFoundException;

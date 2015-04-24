@@ -22,12 +22,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 //JSON Example
 //{
-//    "regions": [
-//        "us_west_2"
-//    ],
-//    "regionsAsSchemaNames": [
-//        "us_west_2"
-//    ],
 //    "tables": [
 //        {
 //            "columns": [

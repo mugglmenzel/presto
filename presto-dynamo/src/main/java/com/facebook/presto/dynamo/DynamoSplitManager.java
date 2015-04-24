@@ -28,6 +28,7 @@ import java.util.concurrent.ExecutorService;
 
 import javax.inject.Inject;
 
+import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
 import com.facebook.presto.dynamo.util.HostAddressFactory;
 import com.facebook.presto.spi.ConnectorColumnHandle;
 import com.facebook.presto.spi.ConnectorPartition;
