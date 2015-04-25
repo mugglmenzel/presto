@@ -36,22 +36,25 @@ public class DynamoRecordCursor implements RecordCursor
     private final String tableName;
     private final List<FullDynamoType> fullDynamoTypes;
     private final List<String> columnNames;
+    private final int fetchSize;
     private final List<Map<String, AttributeValue>> rs = new ArrayList<Map<String, AttributeValue>>();
 
     private long currentRowIndexBase = 0;
     private long currentRowIndex = -1;
     private Map<String, AttributeValue> currentRow;
 
-    Map<String, AttributeValue> lastKeyEvaluated = null;
+    private Map<String, AttributeValue> lastKeyEvaluated = null;
 
     public DynamoRecordCursor(AmazonDynamoDB dynamo, String tableName,
-            List<FullDynamoType> fullDynamoTypes, List<String> columnNames)
+            List<FullDynamoType> fullDynamoTypes, List<String> columnNames,
+            int fetchSize)
     {
         this.dynamo = dynamo;
 
         this.tableName = tableName;
         this.fullDynamoTypes = fullDynamoTypes;
         this.columnNames = columnNames;
+        this.fetchSize = fetchSize;
 
         currentRow = null;
     }
@@ -63,7 +66,7 @@ public class DynamoRecordCursor implements RecordCursor
             log.info(String.format("Doing first scan for dynamo table %s",
                     tableName));
             ScanRequest scanRequest = new ScanRequest()
-                    .withTableName(tableName).withLimit(1000)
+                    .withTableName(tableName).withLimit(fetchSize)
                     .withExclusiveStartKey(lastKeyEvaluated);
             ScanResult scanResult = dynamo.scan(scanRequest);
             List<Map<String, AttributeValue>> items = scanResult.getItems();
@@ -94,7 +97,7 @@ public class DynamoRecordCursor implements RecordCursor
             log.info(String.format("Doing next scan for dynamo table %s",
                     tableName));
             ScanRequest scanRequest = new ScanRequest()
-                    .withTableName(tableName).withLimit(1000)
+                    .withTableName(tableName).withLimit(fetchSize)
                     .withExclusiveStartKey(lastKeyEvaluated);
             ScanResult scanResult = dynamo.scan(scanRequest);
             List<Map<String, AttributeValue>> items = scanResult.getItems();
@@ -168,8 +171,14 @@ public class DynamoRecordCursor implements RecordCursor
     public Slice getSlice(int i)
     {
         String columnName = columnNames.get(i);
-        return utf8Slice(DynamoType.getColumnValue(currentRow, columnName,
-                fullDynamoTypes.get(i)).toString());
+        Comparable<?> columnValue = DynamoType.getColumnValue(currentRow, columnName,
+                fullDynamoTypes.get(i));
+        if (columnValue == null) {
+            return utf8Slice("");
+        }
+        else {
+            return utf8Slice(columnValue.toString());
+        }
     }
 
     @Override

@@ -24,6 +24,7 @@ import java.util.List;
 import javax.inject.Inject;
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
+import com.facebook.presto.dynamo.aws.DynamoAwsClientProvider;
 import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
 import com.facebook.presto.spi.ConnectorColumnHandle;
 import com.facebook.presto.spi.ConnectorRecordSetProvider;
@@ -37,14 +38,16 @@ public class DynamoRecordSetProvider
     private static final Logger log = Logger.get(ConnectorRecordSetProvider.class);
 
     private final String connectorId;
-    private final AmazonDynamoDB dynamoClient;
+    private DynamoClientConfig config;
+    private final DynamoAwsClientProvider dynamoClientProvider;
     private final DynamoAwsMetadataProvider schemaProvider;
 
     @Inject
-    public DynamoRecordSetProvider(DynamoConnectorId connectorId, AmazonDynamoDB dynamoClient, DynamoAwsMetadataProvider schemaProvider)
+    public DynamoRecordSetProvider(DynamoConnectorId connectorId, DynamoClientConfig config, DynamoAwsClientProvider dynamoClientProvider, DynamoAwsMetadataProvider schemaProvider)
     {
         this.connectorId = checkNotNull(connectorId, "connectorId is null").toString();
-        this.dynamoClient = checkNotNull(dynamoClient, "dynamoClient is null");
+        this.config = checkNotNull(config, "config is null");
+        this.dynamoClientProvider = checkNotNull(dynamoClientProvider, "dynamoClientProvider is null");
         this.schemaProvider = schemaProvider;
     }
 
@@ -66,7 +69,9 @@ public class DynamoRecordSetProvider
         catch (IllegalArgumentException ex) {
             log.debug(ex, "Invalid schema for AWS region: " + schema);
         }
-        return new DynamoRecordSet(dynamoClient, tableName, dynamoColumns);
+
+        AmazonDynamoDB dynamoClient = dynamoClientProvider.getClient(schema);
+        return new DynamoRecordSet(dynamoClient, tableName, dynamoColumns, config.getFetchSize());
     }
 
     @Override

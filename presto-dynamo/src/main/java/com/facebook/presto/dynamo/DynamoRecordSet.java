@@ -34,8 +34,9 @@ public class DynamoRecordSet
     private final List<String> columnNames;
     private final List<FullDynamoType> dynamoTypes;
     private final List<Type> columnTypes;
+    private final int fetchSize;
 
-    public DynamoRecordSet(AmazonDynamoDB dynamoClient, String tableName, List<DynamoColumnHandle> dynamoColumns)
+    public DynamoRecordSet(AmazonDynamoDB dynamoClient, String tableName, List<DynamoColumnHandle> dynamoColumns, int fetchSize)
     {
         this.dynamoClient = checkNotNull(dynamoClient, "dynamoClient is null");
         this.tableName = checkNotNull(tableName, "tableName is null");
@@ -46,6 +47,7 @@ public class DynamoRecordSet
         for (DynamoColumnHandle entry : dynamoColumns) {
             this.columnNames.add(entry.getName());
         }
+        this.fetchSize = fetchSize;
     }
 
     @Override
@@ -57,6 +59,6 @@ public class DynamoRecordSet
     @Override
     public RecordCursor cursor()
     {
-        return new DynamoRecordCursor(dynamoClient, tableName, dynamoTypes, columnNames);
+        return new DynamoRecordCursor(dynamoClient, tableName, dynamoTypes, columnNames, fetchSize);
     }
 }

@@ -27,12 +27,9 @@ import java.util.concurrent.ExecutorService;
 
 import javax.inject.Singleton;
 
-import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
-import com.amazonaws.regions.RegionUtils;
-import com.amazonaws.regions.Regions;
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
 import com.facebook.presto.dynamo.aws.CachingDynamoAwsMetadataProvider;
+import com.facebook.presto.dynamo.aws.DefaultDynamoAwsClientProvider;
+import com.facebook.presto.dynamo.aws.DynamoAwsClientProvider;
 import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
 import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
 import com.google.inject.Binder;
@@ -53,14 +50,9 @@ public class DynamoClientModule
     @Override
     public void configure(Binder binder)
     {
-        // TODO create client by region (schema)
-        AmazonDynamoDBClient client = new AmazonDynamoDBClient(
-                new DefaultAWSCredentialsProviderChain()
-                        .getCredentials());
-        client.setRegion(RegionUtils.getRegion(Regions.US_WEST_2.getName()));
-        binder.bind(AmazonDynamoDB.class).toInstance(client);
-
         bindConfig(binder).to(DynamoClientConfig.class);
+
+        binder.bind(DynamoAwsClientProvider.class).to(DefaultDynamoAwsClientProvider.class).in(Scopes.SINGLETON);
 
         //ListeningExecutorService executor = listeningDecorator(newCachedThreadPool(daemonThreadsNamed("test-%s")));
         //CachingDynamoMetadataProvider schemaProvider = new CachingDynamoMetadataProvider(

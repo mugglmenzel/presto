@@ -25,7 +25,7 @@ import java.util.concurrent.ExecutorService;
 
 import javax.inject.Singleton;
 
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
+import com.facebook.presto.dynamo.aws.DynamoAwsClientProvider;
 import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
 import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
 import com.google.inject.Binder;
@@ -48,7 +48,7 @@ public class DynamoClientTestModule
     @Override
     public void configure(Binder binder)
     {
-        binder.bind(AmazonDynamoDB.class).to(MockAmazonDynamoDB.class);
+        binder.bind(DynamoAwsClientProvider.class).to(MockDynamoAwsClientProvider.class);
 
         DynamoAwsMetadataProvider schemaProvider = new DynamoMetadataTestProvider();
         binder.bind(DynamoAwsMetadataProvider.class).toInstance(schemaProvider);

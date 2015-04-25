@@ -64,21 +64,16 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
 {
     public MockAmazonDynamoDB()
     {
-        // TODO Auto-generated constructor stub
     }
 
     @Override
     public void setEndpoint(String endpoint) throws IllegalArgumentException
     {
-        // TODO Auto-generated method stub
-
     }
 
     @Override
     public void setRegion(Region region) throws IllegalArgumentException
     {
-        // TODO Auto-generated method stub
-
     }
 
     @Override
@@ -113,7 +108,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
     public UpdateTableResult updateTable(UpdateTableRequest updateTableRequest)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -121,7 +115,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
     public DeleteTableResult deleteTable(DeleteTableRequest deleteTableRequest)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -130,7 +123,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
             BatchWriteItemRequest batchWriteItemRequest)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -139,7 +131,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
             DescribeTableRequest describeTableRequest)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -147,7 +138,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
     public GetItemResult getItem(GetItemRequest getItemRequest)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -155,7 +145,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
     public DeleteItemResult deleteItem(DeleteItemRequest deleteItemRequest)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -163,7 +152,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
     public CreateTableResult createTable(CreateTableRequest createTableRequest)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -171,7 +159,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
     public QueryResult query(QueryRequest queryRequest)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -179,7 +166,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
     public PutItemResult putItem(PutItemRequest putItemRequest)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -187,7 +173,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
     public ListTablesResult listTables(ListTablesRequest listTablesRequest)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -195,7 +180,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
     public UpdateItemResult updateItem(UpdateItemRequest updateItemRequest)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -204,7 +188,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
             BatchGetItemRequest batchGetItemRequest)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -212,7 +195,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
     public ListTablesResult listTables() throws AmazonServiceException,
             AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -220,7 +202,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
     public ScanResult scan(String tableName, List<String> attributesToGet)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -228,7 +209,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
     public ScanResult scan(String tableName, Map<String, Condition> scanFilter)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -237,7 +217,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
             Map<String, Condition> scanFilter) throws AmazonServiceException,
             AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -246,7 +225,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
             ProvisionedThroughput provisionedThroughput)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -254,7 +232,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
     public DeleteTableResult deleteTable(String tableName)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -263,7 +240,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
             Map<String, List<WriteRequest>> requestItems)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -271,7 +247,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
     public DescribeTableResult describeTable(String tableName)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -280,7 +255,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
             Map<String, AttributeValue> key) throws AmazonServiceException,
             AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -289,7 +263,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
             Map<String, AttributeValue> key, Boolean consistentRead)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -298,7 +271,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
             Map<String, AttributeValue> key) throws AmazonServiceException,
             AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -307,7 +279,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
             Map<String, AttributeValue> key, String returnValues)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -318,7 +289,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
             ProvisionedThroughput provisionedThroughput)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -327,7 +297,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
             Map<String, AttributeValue> item) throws AmazonServiceException,
             AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -336,7 +305,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
             Map<String, AttributeValue> item, String returnValues)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -344,7 +312,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
     public ListTablesResult listTables(String exclusiveStartTableName)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -352,7 +319,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
     public ListTablesResult listTables(String exclusiveStartTableName,
             Integer limit) throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -360,7 +326,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
     public ListTablesResult listTables(Integer limit)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -370,7 +335,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
             Map<String, AttributeValueUpdate> attributeUpdates)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -381,7 +345,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
             String returnValues) throws AmazonServiceException,
             AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -391,7 +354,6 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
             String returnConsumedCapacity) throws AmazonServiceException,
             AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -400,22 +362,18 @@ public class MockAmazonDynamoDB implements AmazonDynamoDB
             Map<String, KeysAndAttributes> requestItems)
             throws AmazonServiceException, AmazonClientException
     {
-        // TODO Auto-generated method stub
         return null;
     }
 
     @Override
     public void shutdown()
     {
-        // TODO Auto-generated method stub
-
     }
 
     @Override
     public ResponseMetadata getCachedResponseMetadata(
             AmazonWebServiceRequest request)
     {
-        // TODO Auto-generated method stub
         return null;
     }
 }
