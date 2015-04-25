@@ -18,8 +18,8 @@ import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import io.airlift.command.Command;
 import io.airlift.command.HelpOption;
+import io.airlift.log.Level;
 import io.airlift.log.Logging;
-import io.airlift.log.Logging.Level;
 import io.airlift.log.LoggingConfiguration;
 
 import javax.inject.Inject;
@@ -27,6 +27,7 @@ import javax.inject.Inject;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -127,6 +128,7 @@ public class PrestoBenchmarkDriver
         if (files == null) {
             return ImmutableList.of();
         }
+        Arrays.sort(files);
 
         ImmutableList.Builder<BenchmarkQuery> queries = ImmutableList.builder();
         for (File file : files) {

@@ -23,6 +23,8 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.joda.time.DateTimeZone;
 
+import javax.inject.Inject;
+
 import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
@@ -31,6 +33,7 @@ import java.util.Set;
 import static com.facebook.presto.hive.HiveUtil.getDeserializerClassName;
 import static com.google.common.base.Predicates.not;
 import static com.google.common.collect.Iterables.filter;
+import static java.util.Objects.requireNonNull;
 
 public class ParquetRecordCursorProvider
         implements HiveRecordCursorProvider
@@ -39,6 +42,19 @@ public class ParquetRecordCursorProvider
             .add("org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe")
             .add("parquet.hive.serde.ParquetHiveSerDe")
             .build();
+
+    private final boolean useParquetColumnNames;
+
+    @Inject
+    public ParquetRecordCursorProvider(HiveClientConfig hiveClientConfig)
+    {
+        this(requireNonNull(hiveClientConfig, "hiveClientConfig is null").isUseParquetColumnNames());
+    }
+
+    public ParquetRecordCursorProvider(boolean useParquetColumnNames)
+    {
+        this.useParquetColumnNames = useParquetColumnNames;
+    }
 
     @Override
     public Optional<HiveRecordCursor> createHiveRecordCursor(
@@ -73,21 +89,17 @@ public class ParquetRecordCursorProvider
                 schema,
                 partitionKeys,
                 columns,
+                useParquetColumnNames,
                 typeManager));
     }
 
     private static Predicate<HiveColumnHandle> isParquetSupportedType()
     {
-        return new Predicate<HiveColumnHandle>()
-        {
-            @Override
-            public boolean apply(HiveColumnHandle columnHandle)
-            {
-                HiveType hiveType = columnHandle.getHiveType();
-                return hiveType != HiveType.HIVE_TIMESTAMP &&
-                        hiveType != HiveType.HIVE_DATE &&
-                        hiveType != HiveType.HIVE_BINARY;
-            }
+        return columnHandle -> {
+            HiveType hiveType = columnHandle.getHiveType();
+            return !hiveType.equals(HiveType.HIVE_TIMESTAMP) &&
+                    !hiveType.equals(HiveType.HIVE_DATE) &&
+                    !hiveType.equals(HiveType.HIVE_BINARY);
         };
     }
 }

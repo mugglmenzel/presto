@@ -14,9 +14,9 @@
 package com.facebook.presto.hive;
 
 import com.facebook.presto.spi.PrestoException;
-import com.facebook.presto.spi.type.StandardTypes;
-import com.facebook.presto.spi.block.BlockBuilderStatus;
 import com.facebook.presto.spi.block.BlockBuilder;
+import com.facebook.presto.spi.block.BlockBuilderStatus;
+import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
 import com.google.common.base.Throwables;
@@ -50,6 +50,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
 
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_CURSOR_ERROR;
@@ -70,6 +71,7 @@ import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.lang.String.format;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.stream.Collectors.toList;
 import static parquet.schema.OriginalType.LIST;
 import static parquet.schema.OriginalType.MAP;
 import static parquet.schema.OriginalType.MAP_KEY_VALUE;
@@ -104,16 +106,16 @@ class ParquetHiveRecordCursor
             Properties splitSchema,
             List<HivePartitionKey> partitionKeys,
             List<HiveColumnHandle> columns,
+            boolean useParquetColumnNames,
             TypeManager typeManager)
     {
-        checkNotNull(configuration, "jobConf is null");
         checkNotNull(path, "path is null");
         checkArgument(length >= 0, "totalBytes is negative");
         checkNotNull(splitSchema, "splitSchema is null");
         checkNotNull(partitionKeys, "partitionKeys is null");
         checkNotNull(columns, "columns is null");
 
-        this.recordReader = createParquetRecordReader(configuration, path, start, length, columns);
+        this.recordReader = createParquetRecordReader(configuration, path, start, length, columns, useParquetColumnNames);
         this.totalBytes = length;
 
         int size = columns.size();
@@ -302,14 +304,20 @@ class ParquetHiveRecordCursor
         }
     }
 
-    private ParquetRecordReader<Void> createParquetRecordReader(Configuration configuration, Path path, long start, long length, List<HiveColumnHandle> columns)
+    private ParquetRecordReader<Void> createParquetRecordReader(
+            Configuration configuration,
+            Path path,
+            long start,
+            long length,
+            List<HiveColumnHandle> columns,
+            boolean useParquetColumnNames)
     {
         try {
             ParquetMetadata parquetMetadata = ParquetFileReader.readFooter(configuration, path);
             List<BlockMetaData> blocks = parquetMetadata.getBlocks();
             FileMetaData fileMetaData = parquetMetadata.getFileMetaData();
 
-            PrestoReadSupport readSupport = new PrestoReadSupport(columns, parquetMetadata.getFileMetaData().getSchema());
+            PrestoReadSupport readSupport = new PrestoReadSupport(useParquetColumnNames, columns, fileMetaData.getSchema());
             ReadContext readContext = readSupport.init(configuration, fileMetaData.getKeyValueMetaData(), fileMetaData.getSchema());
 
             List<BlockMetaData> splitGroup = new ArrayList<>();
@@ -357,21 +365,26 @@ class ParquetHiveRecordCursor
         }
     }
 
-    public class PrestoReadSupport
+    public final class PrestoReadSupport
             extends ReadSupport<Void>
     {
+        private final boolean useParquetColumnNames;
         private final List<HiveColumnHandle> columns;
         private final List<Converter> converters;
 
-        public PrestoReadSupport(List<HiveColumnHandle> columns, MessageType messageType)
+        public PrestoReadSupport(boolean useParquetColumnNames, List<HiveColumnHandle> columns, MessageType messageType)
         {
             this.columns = columns;
+            this.useParquetColumnNames = useParquetColumnNames;
 
             ImmutableList.Builder<Converter> converters = ImmutableList.builder();
             for (int i = 0; i < columns.size(); i++) {
                 HiveColumnHandle column = columns.get(i);
-                if (!column.isPartitionKey() && column.getHiveColumnIndex() < messageType.getFieldCount()) {
-                    parquet.schema.Type parquetType = messageType.getFields().get(column.getHiveColumnIndex());
+                if (!column.isPartitionKey()) {
+                    parquet.schema.Type parquetType = getParquetType(column, messageType);
+                    if (parquetType == null) {
+                        continue;
+                    }
                     if (parquetType.isPrimitive()) {
                         converters.add(new ParquetPrimitiveColumnConverter(i));
                     }
@@ -406,13 +419,12 @@ class ParquetHiveRecordCursor
                 Map<String, String> keyValueMetaData,
                 MessageType messageType)
         {
-            ImmutableList.Builder<parquet.schema.Type> fields = ImmutableList.builder();
-            for (HiveColumnHandle column : columns) {
-                if (!column.isPartitionKey() && column.getHiveColumnIndex() < messageType.getFieldCount()) {
-                    fields.add(messageType.getType(column.getName()));
-                }
-            }
-            MessageType requestedProjection = new MessageType(messageType.getName(), fields.build());
+            List<parquet.schema.Type> fields = columns.stream()
+                    .filter(column -> !column.isPartitionKey())
+                    .map(column -> getParquetType(column, messageType))
+                    .filter(Objects::nonNull)
+                    .collect(toList());
+            MessageType requestedProjection = new MessageType(messageType.getName(), fields);
             return new ReadContext(requestedProjection);
         }
 
@@ -424,6 +436,21 @@ class ParquetHiveRecordCursor
                 ReadContext readContext)
         {
             return new ParquetRecordConverter(converters);
+        }
+
+        private parquet.schema.Type getParquetType(HiveColumnHandle column, MessageType messageType)
+        {
+            if (useParquetColumnNames) {
+                if (messageType.containsField(column.getName())) {
+                    return messageType.getType(column.getName());
+                }
+                return null;
+            }
+
+            if (column.getHiveColumnIndex() < messageType.getFieldCount()) {
+                return messageType.getType(column.getHiveColumnIndex());
+            }
+            return null;
         }
     }
 
@@ -451,7 +478,7 @@ class ParquetHiveRecordCursor
     }
 
     public static class ParquetGroupConverter
-        extends GroupConverter
+            extends GroupConverter
     {
         private final List<Converter> converters;
 
@@ -709,7 +736,28 @@ class ParquetHiveRecordCursor
                     columnName,
                     listType.getFieldCount());
 
-            elementConverter = new ParquetListEntryConverter(columnName, listType.getType(0).asGroupType());
+            // The Parquet specification requires that the element value of a
+            // LIST type be wrapped in an inner repeated group, like so:
+            //
+            // optional group listField (LIST) {
+            //   repeated group list {
+            //     optional int element
+            //   }
+            // }
+            //
+            // However, some parquet libraries don't follow this spec. The
+            // compatibility rules used here are specified in the Parquet
+            // documentation at http://git.io/vf3wG.
+            parquet.schema.Type elementType = listType.getType(0);
+            if (elementType.isPrimitive() ||
+                    elementType.asGroupType().getFieldCount() > 1 ||
+                    elementType.getName().equals("array") ||
+                    elementType.getName().equals(listType.getName() + "_tuple")) {
+                elementConverter = createConverter(columnName + ".element", elementType);
+            }
+            else {
+                elementConverter = new ParquetListEntryConverter(columnName, elementType.asGroupType());
+            }
         }
 
         @Override
@@ -792,7 +840,7 @@ class ParquetHiveRecordCursor
             if (fieldIndex == 0) {
                 return (Converter) elementConverter;
             }
-            throw new IllegalArgumentException("LIST entry field must be 0 or 1 not " + fieldIndex);
+            throw new IllegalArgumentException("LIST entry field must be 0 not " + fieldIndex);
         }
 
         @Override

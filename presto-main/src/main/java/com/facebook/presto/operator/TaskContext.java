@@ -13,12 +13,15 @@
  */
 package com.facebook.presto.operator;
 
+import com.facebook.presto.ExceededMemoryLimitException;
 import com.facebook.presto.Session;
 import com.facebook.presto.execution.StateMachine.StateChangeListener;
 import com.facebook.presto.execution.TaskId;
 import com.facebook.presto.execution.TaskState;
 import com.facebook.presto.execution.TaskStateMachine;
+import com.facebook.presto.memory.QueryContext;
 import com.google.common.collect.ImmutableList;
+import com.google.common.util.concurrent.ListenableFuture;
 import io.airlift.stats.CounterStat;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
@@ -32,17 +35,17 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static com.facebook.presto.util.Threads.checkNotSameThreadExecutor;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.collect.Iterables.transform;
 import static io.airlift.units.DataSize.Unit.BYTE;
-import static io.airlift.units.DataSize.Unit.MEGABYTE;
+import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 @ThreadSafe
 public class TaskContext
 {
+    private final QueryContext queryContext;
     private final TaskStateMachine taskStateMachine;
     private final Executor executor;
     private final Session session;
@@ -66,38 +69,8 @@ public class TaskContext
     private final boolean verboseStats;
     private final boolean cpuTimerEnabled;
 
-    public TaskContext(TaskId taskId, Executor executor, Session session)
-    {
-        this(
-                checkNotNull(taskId, "taskId is null"),
-                checkNotSameThreadExecutor(executor, "executor is null"),
-                session,
-                new DataSize(256, MEGABYTE));
-    }
-
-    public TaskContext(TaskId taskId, Executor executor, Session session, DataSize maxMemory)
-    {
-        this(
-                taskId,
-                executor,
-                session,
-                checkNotNull(maxMemory, "maxMemory is null"),
-                true);
-    }
-
-    public TaskContext(TaskId taskId, Executor executor, Session session, DataSize maxMemory, boolean cpuTimerEnabled)
-    {
-        this(
-                new TaskStateMachine(checkNotNull(taskId, "taskId is null"), checkNotSameThreadExecutor(executor, "executor is null")),
-                executor,
-                session,
-                checkNotNull(maxMemory, "maxMemory is null"),
-                new DataSize(1, MEGABYTE),
-                true,
-                cpuTimerEnabled);
-    }
-
-    public TaskContext(TaskStateMachine taskStateMachine,
+    public TaskContext(QueryContext queryContext,
+            TaskStateMachine taskStateMachine,
             Executor executor,
             Session session,
             DataSize maxMemory,
@@ -106,6 +79,7 @@ public class TaskContext
             boolean cpuTimerEnabled)
     {
         this.taskStateMachine = checkNotNull(taskStateMachine, "taskStateMachine is null");
+        this.queryContext = requireNonNull(queryContext, "queryContext is null");
         this.executor = checkNotNull(executor, "executor is null");
         this.session = session;
         this.maxMemory = checkNotNull(maxMemory, "maxMemory is null").toBytes();
@@ -180,21 +154,38 @@ public class TaskContext
         return operatorPreAllocatedMemory;
     }
 
-    public synchronized boolean reserveMemory(long bytes)
+    public synchronized ListenableFuture<?> reserveMemory(long bytes)
+    {
+        checkArgument(bytes >= 0, "bytes is negative");
+
+        if (memoryReservation.get() + bytes > maxMemory) {
+            throw new ExceededMemoryLimitException(getMaxMemorySize());
+        }
+        ListenableFuture<?> future = queryContext.reserveMemory(bytes);
+        memoryReservation.getAndAdd(bytes);
+        return future;
+    }
+
+    public synchronized boolean tryReserveMemory(long bytes)
     {
         checkArgument(bytes >= 0, "bytes is negative");
 
         if (memoryReservation.get() + bytes > maxMemory) {
             return false;
         }
-        memoryReservation.getAndAdd(bytes);
-        return true;
+        if (queryContext.tryReserveMemory(bytes)) {
+            memoryReservation.getAndAdd(bytes);
+            return true;
+        }
+        return false;
     }
 
     public synchronized void freeMemory(long bytes)
     {
+        checkArgument(bytes >= 0, "bytes is negative");
         checkArgument(bytes <= memoryReservation.get(), "tried to free more memory than is reserved");
         memoryReservation.getAndAdd(-bytes);
+        queryContext.freeMemory(bytes);
     }
 
     public boolean isVerboseStats()

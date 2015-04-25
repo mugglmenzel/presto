@@ -17,7 +17,12 @@ public interface ConnectorHandleResolver
 {
     boolean canHandle(ConnectorTableHandle tableHandle);
 
-    boolean canHandle(ConnectorColumnHandle columnHandle);
+    default boolean canHandle(ConnectorTableLayoutHandle handle)
+    {
+        return false;
+    }
+
+    boolean canHandle(ColumnHandle columnHandle);
 
     boolean canHandle(ConnectorSplit split);
 
@@ -38,7 +43,12 @@ public interface ConnectorHandleResolver
 
     Class<? extends ConnectorTableHandle> getTableHandleClass();
 
-    Class<? extends ConnectorColumnHandle> getColumnHandleClass();
+    default Class<? extends ConnectorTableLayoutHandle> getTableLayoutHandleClass()
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    Class<? extends ColumnHandle> getColumnHandleClass();
 
     Class<? extends ConnectorSplit> getSplitClass();
 

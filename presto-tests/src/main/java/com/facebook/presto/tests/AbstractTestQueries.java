@@ -240,6 +240,20 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testGroupByPartitioningColumn()
+            throws Exception
+    {
+        assertQuery("SELECT orderkey, count(*) FROM orders GROUP BY orderkey");
+    }
+
+    @Test
+    public void testJoinPartitionedTable()
+            throws Exception
+    {
+        assertQuery("SELECT * FROM orders a JOIN orders b ON a.orderkey = b.orderkey");
+    }
+
+    @Test
     public void testApproxPercentile()
             throws Exception
     {
@@ -999,6 +1013,13 @@ public abstract class AbstractTestQueries
             throws Exception
     {
         assertQuery("SELECT sum(totalprice * 2) + sum(totalprice * 2) FROM orders");
+    }
+
+    @Test
+    public void testGroupByOnSupersetOfPartitioning()
+            throws Exception
+    {
+        assertQuery("SELECT orderdate, c, count(*) FROM (SELECT orderdate, count(*) c FROM orders GROUP BY orderdate) GROUP BY orderdate, c");
     }
 
     @Test

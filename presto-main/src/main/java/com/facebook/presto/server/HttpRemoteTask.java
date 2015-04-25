@@ -29,7 +29,6 @@ import com.facebook.presto.execution.TaskId;
 import com.facebook.presto.execution.TaskInfo;
 import com.facebook.presto.execution.TaskState;
 import com.facebook.presto.metadata.Split;
-import com.facebook.presto.operator.TaskContext;
 import com.facebook.presto.operator.TaskStats;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.sql.planner.PlanFragment;
@@ -190,7 +189,7 @@ public class HttpRemoteTask
                     .map(outputId -> new BufferInfo(outputId, false, 0, 0))
                     .collect(toImmutableList());
 
-            TaskStats taskStats = new TaskContext(taskId, executor, session).getTaskStats();
+            TaskStats taskStats = new TaskStats(DateTime.now(), null);
 
             taskInfo = new StateMachine<>("task " + taskId, executor, new TaskInfo(
                     taskId,
@@ -492,6 +491,7 @@ public class HttpRemoteTask
             // mark task as canceled (if not already done)
             TaskInfo taskInfo = getTaskInfo();
             URI uri = taskInfo.getSelf();
+
             updateTaskInfo(new TaskInfo(taskInfo.getTaskId(),
                     taskInfo.getNodeInstanceId(),
                     TaskInfo.MAX_VERSION,
@@ -502,10 +502,6 @@ public class HttpRemoteTask
                     taskInfo.getNoMoreSplits(),
                     taskInfo.getStats(),
                     ImmutableList.<ExecutionFailureInfo>of()));
-
-            if (uri == null) {
-                return;
-            }
 
             // send abort to task and ignore response
             final long start = System.nanoTime();

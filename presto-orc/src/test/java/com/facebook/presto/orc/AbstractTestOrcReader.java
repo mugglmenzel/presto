@@ -183,6 +183,13 @@ public abstract class AbstractTestOrcReader
     public void testDoubleNaNInfinity()
             throws Exception
     {
+        tester.testRoundTrip(javaDoubleObjectInspector, ImmutableList.of(1000.0, -1.0, Double.POSITIVE_INFINITY), DOUBLE);
+        tester.testRoundTrip(javaDoubleObjectInspector, ImmutableList.of(-1000.0, Double.NEGATIVE_INFINITY, 1.0), DOUBLE);
+        tester.testRoundTrip(javaDoubleObjectInspector, ImmutableList.of(0.0, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY), DOUBLE);
+
+        tester.testRoundTrip(javaDoubleObjectInspector, ImmutableList.of(Double.NaN, -1.0, 1.0), DOUBLE);
+        tester.testRoundTrip(javaDoubleObjectInspector, ImmutableList.of(Double.NaN, -1.0, Double.POSITIVE_INFINITY), DOUBLE);
+        tester.testRoundTrip(javaDoubleObjectInspector, ImmutableList.of(Double.NaN, Double.NEGATIVE_INFINITY, 1.0), DOUBLE);
         tester.testRoundTrip(javaDoubleObjectInspector, ImmutableList.of(Double.NaN, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY), DOUBLE);
     }
 
@@ -228,7 +235,8 @@ public abstract class AbstractTestOrcReader
         Iterable<byte[]> writeValues = transform(intsBetween(0, 30_000), compose(AbstractTestOrcReader::stringToByteArray, Object::toString));
         tester.testRoundTrip(javaByteArrayObjectInspector,
                 writeValues,
-                transform(writeValues, AbstractTestOrcReader::byteArrayToString), writeValues, VARBINARY);
+                transform(writeValues, AbstractTestOrcReader::byteArrayToString),
+                VARBINARY);
     }
 
     @Test
@@ -238,7 +246,8 @@ public abstract class AbstractTestOrcReader
         Iterable<byte[]> writeValues = limit(cycle(transform(ImmutableList.of(1, 3, 5, 7, 11, 13, 17), compose(AbstractTestOrcReader::stringToByteArray, Object::toString))), 30_000);
         tester.testRoundTrip(javaByteArrayObjectInspector,
                 writeValues,
-                transform(writeValues, AbstractTestOrcReader::byteArrayToString), writeValues, VARBINARY);
+                transform(writeValues, AbstractTestOrcReader::byteArrayToString),
+                VARBINARY);
     }
 
     @Test
@@ -259,10 +268,10 @@ public abstract class AbstractTestOrcReader
                         Collections.nCopies(1_000_000, null))),
                 200_000);
 
-        tester.assertRoundTrip(javaIntObjectInspector, values, transform(values, value -> value == null ? null : (long) value));
+        tester.assertRoundTrip(javaIntObjectInspector, values, transform(values, value -> value == null ? null : (long) value), VARCHAR);
 
         Iterable<String> stringValue = transform(values, value -> value == null ? null : String.valueOf(value));
-        tester.assertRoundTrip(javaStringObjectInspector, stringValue, stringValue);
+        tester.assertRoundTrip(javaStringObjectInspector, stringValue, stringValue, VARCHAR);
     }
 
     @Test
@@ -273,69 +282,55 @@ public abstract class AbstractTestOrcReader
         tester.testRoundTrip(javaStringObjectInspector, values, VARCHAR);
     }
 
-    private static <T> Iterable<T> skipEvery(final int n, final Iterable<T> iterable)
+    private static <T> Iterable<T> skipEvery(int n, Iterable<T> iterable)
     {
-        return new Iterable<T>()
+        return () -> new AbstractIterator<T>()
         {
+            private final Iterator<T> delegate = iterable.iterator();
+            private int position;
+
             @Override
-            public Iterator<T> iterator()
+            protected T computeNext()
             {
-                return new AbstractIterator<T>()
-                {
-                    private final Iterator<T> delegate = iterable.iterator();
-                    private int position;
-
-                    @Override
-                    protected T computeNext()
-                    {
-                        while (true) {
-                            if (!delegate.hasNext()) {
-                                return endOfData();
-                            }
-
-                            T next = delegate.next();
-                            position++;
-                            if (position <= n) {
-                                return next;
-                            }
-                            position = 0;
-                        }
+                while (true) {
+                    if (!delegate.hasNext()) {
+                        return endOfData();
                     }
-                };
+
+                    T next = delegate.next();
+                    position++;
+                    if (position <= n) {
+                        return next;
+                    }
+                    position = 0;
+                }
             }
         };
     }
 
-    private static <T> Iterable<T> repeatEach(final int n, final Iterable<T> iterable)
+    private static <T> Iterable<T> repeatEach(int n, Iterable<T> iterable)
     {
-        return new Iterable<T>()
+        return () -> new AbstractIterator<T>()
         {
+            private final Iterator<T> delegate = iterable.iterator();
+            private int position;
+            private T value;
+
             @Override
-            public Iterator<T> iterator()
+            protected T computeNext()
             {
-                return new AbstractIterator<T>()
-                {
-                    private final Iterator<T> delegate = iterable.iterator();
-                    private int position;
-                    private T value;
-
-                    @Override
-                    protected T computeNext()
-                    {
-                        if (position == 0) {
-                            if (!delegate.hasNext()) {
-                                return endOfData();
-                            }
-                            value = delegate.next();
-                        }
-
-                        position++;
-                        if (position >= n) {
-                            position = 0;
-                        }
-                        return value;
+                if (position == 0) {
+                    if (!delegate.hasNext()) {
+                        return endOfData();
                     }
-                };
+                    value = delegate.next();
+                }
+
+                position++;
+                if (position >= n) {
+                    position = 0;
+                }
+                return value;
             }
         };
     }
@@ -350,27 +345,20 @@ public abstract class AbstractTestOrcReader
         });
     }
 
-    private static Iterable<Double> doubleSequence(final double start, final double step, final int items)
+    private static Iterable<Double> doubleSequence(double start, double step, int items)
     {
-        return new Iterable<Double>()
+        return () -> new AbstractSequentialIterator<Double>(start)
         {
-            @Override
-            public Iterator<Double> iterator()
-            {
-                return new AbstractSequentialIterator<Double>(start)
-                {
-                    private int item;
+            private int item;
 
-                    @Override
-                    protected Double computeNext(Double previous)
-                    {
-                        if (item >= items) {
-                            return null;
-                        }
-                        item++;
-                        return previous + step;
-                    }
-                };
+            @Override
+            protected Double computeNext(Double previous)
+            {
+                if (item >= items) {
+                    return null;
+                }
+                item++;
+                return previous + step;
             }
         };
     }

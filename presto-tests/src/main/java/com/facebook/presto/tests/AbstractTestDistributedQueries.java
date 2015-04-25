@@ -105,6 +105,17 @@ public abstract class AbstractTestDistributedQueries
     }
 
     @Test
+    public void testCreateTable()
+            throws Exception
+    {
+        assertQueryTrue("CREATE TABLE test_create (a bigint, b double, c varchar)");
+        assertTrue(queryRunner.tableExists(getSession(), "test_create"));
+
+        assertQueryTrue("DROP TABLE test_create");
+        assertFalse(queryRunner.tableExists(getSession(), "test_create"));
+    }
+
+    @Test
     public void testCreateTableAsSelect()
             throws Exception
     {
@@ -170,6 +181,15 @@ public abstract class AbstractTestDistributedQueries
         assertQuery("SELECT * FROM test_insert", query + " UNION ALL " + query);
 
         assertQueryTrue("DROP TABLE test_insert");
+    }
+
+    @Test
+    public void testDropTableIfExists()
+            throws Exception
+    {
+        assertFalse(queryRunner.tableExists(getSession(), "test_drop_if_exists"));
+        assertQueryTrue("DROP TABLE IF EXISTS test_drop_if_exists");
+        assertFalse(queryRunner.tableExists(getSession(), "test_drop_if_exists"));
     }
 
     @Test
@@ -254,13 +274,6 @@ public abstract class AbstractTestDistributedQueries
         assertEquals(actual, expected);
 
         assertQueryTrue("DROP VIEW meta_test_view");
-    }
-
-    @Test(expectedExceptions = RuntimeException.class, expectedExceptionsMessageRegExp = ".*statement is too large.*")
-    public void testLargeQueryFailure()
-            throws Exception
-    {
-        assertQuery("SELECT " + Joiner.on(" AND ").join(nCopies(1000, "1 = 1")), "SELECT true");
     }
 
     @Test

@@ -20,6 +20,7 @@ import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.metadata.OperatorNotFoundException;
 import com.facebook.presto.metadata.OperatorType;
 import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.spi.type.TypeManager;
 import com.facebook.presto.spi.type.TypeSignature;
 import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.planner.DependencyExtractor;
@@ -81,6 +82,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 import static com.facebook.presto.metadata.FunctionRegistry.canCoerce;
 import static com.facebook.presto.metadata.FunctionRegistry.getCommonSuperType;
@@ -117,11 +119,9 @@ import static com.google.common.collect.Sets.newIdentityHashSet;
 
 public class ExpressionAnalyzer
 {
-    private final Analysis analysis;
-    private final Metadata metadata;
-    private final SqlParser sqlParser;
-    private final boolean experimentalSyntaxEnabled;
-    private final Session session;
+    private final FunctionRegistry functionRegistry;
+    private final TypeManager typeManager;
+    private final Function<Node, StatementAnalyzer> statementAnalyzerFactory;
     private final Map<QualifiedName, Integer> resolvedNames = new HashMap<>();
     private final IdentityHashMap<FunctionCall, FunctionInfo> resolvedFunctions = new IdentityHashMap<>();
     private final IdentityHashMap<Expression, Type> expressionTypes = new IdentityHashMap<>();
@@ -129,13 +129,11 @@ public class ExpressionAnalyzer
     private final IdentityHashMap<Expression, Boolean> rowFieldReferences = new IdentityHashMap<>();
     private final Set<InPredicate> subqueryInPredicates = newIdentityHashSet();
 
-    public ExpressionAnalyzer(Analysis analysis, Session session, Metadata metadata, SqlParser sqlParser, boolean experimentalSyntaxEnabled)
+    public ExpressionAnalyzer(FunctionRegistry functionRegistry, TypeManager typeManager, Function<Node, StatementAnalyzer> statementAnalyzerFactory)
     {
-        this.analysis = checkNotNull(analysis, "analysis is null");
-        this.session = checkNotNull(session, "session is null");
-        this.metadata = checkNotNull(metadata, "metadata is null");
-        this.sqlParser = checkNotNull(sqlParser, "sqlParser is null");
-        this.experimentalSyntaxEnabled = experimentalSyntaxEnabled;
+        this.functionRegistry = checkNotNull(functionRegistry, "functionRegistry is null");
+        this.typeManager = checkNotNull(typeManager, "typeManager is null");
+        this.statementAnalyzerFactory = checkNotNull(statementAnalyzerFactory, "statementAnalyzerFactory is null");
     }
 
     public Map<QualifiedName, Integer> getResolvedNames()
@@ -201,7 +199,7 @@ public class ExpressionAnalyzer
         @Override
         protected Void visitSubqueryExpression(SubqueryExpression node, Void context)
         {
-            throw new SemanticException(SemanticErrorCode.NOT_SUPPORTED, node, "Scalar subqueries not yet supported");
+            throw new SemanticException(NOT_SUPPORTED, node, "Scalar subqueries not yet supported");
         }
     }
 
@@ -215,6 +213,7 @@ public class ExpressionAnalyzer
             this.tupleDescriptor = checkNotNull(tupleDescriptor, "tupleDescriptor is null");
         }
 
+        @SuppressWarnings("SuspiciousMethodCalls")
         @Override
         public Type process(Node node, @Nullable AnalysisContext context)
         {
@@ -277,9 +276,9 @@ public class ExpressionAnalyzer
             List<Field> matches = tupleDescriptor.resolveFields(node.getName());
             if (matches.isEmpty()) {
                 // TODO This is kind of hacky, instead we should change the way QualifiedNameReferences are parsed
-                return tryVisitRowFieldAccessor(node, context);
+                return tryVisitRowFieldAccessor(node);
             }
-            else if (matches.size() > 1) {
+            if (matches.size() > 1) {
                 throw new SemanticException(AMBIGUOUS_ATTRIBUTE, node, "Column '%s' is ambiguous", node.getName());
             }
 
@@ -291,7 +290,7 @@ public class ExpressionAnalyzer
             return field.getType();
         }
 
-        private Type tryVisitRowFieldAccessor(QualifiedNameReference node, AnalysisContext context)
+        private Type tryVisitRowFieldAccessor(QualifiedNameReference node)
         {
             if (node.getName().getParts().size() < 2) {
                 throw createMissingAttributeException(node);
@@ -301,7 +300,7 @@ public class ExpressionAnalyzer
             if (matches.isEmpty()) {
                 throw createMissingAttributeException(node);
             }
-            else if (matches.size() > 1) {
+            if (matches.size() > 1) {
                 throw new SemanticException(AMBIGUOUS_ATTRIBUTE, node, "Column '%s' is ambiguous", node.getName());
             }
 
@@ -389,7 +388,7 @@ public class ExpressionAnalyzer
             Type firstType = process(node.getFirst(), context);
             Type secondType = process(node.getSecond(), context);
 
-            if (!FunctionRegistry.getCommonSuperType(firstType, secondType).isPresent()) {
+            if (!getCommonSuperType(firstType, secondType).isPresent()) {
                 throw new SemanticException(TYPE_MISMATCH, node, "Types are not comparable with NULLIF: %s vs %s", firstType, secondType);
             }
 
@@ -488,7 +487,7 @@ public class ExpressionAnalyzer
                         throw new SemanticException(TYPE_MISMATCH, node, "Unary '+' operator cannot by applied to %s type", type);
                     }
                     expressionTypes.put(node, type);
-                    break;
+                    return type;
                 case MINUS:
                     return getOperator(context, node, OperatorType.NEGATION, node.getValue());
             }
@@ -525,7 +524,7 @@ public class ExpressionAnalyzer
         protected Type visitArrayConstructor(ArrayConstructor node, AnalysisContext context)
         {
             Type type = coerceToSingleType(context, "All ARRAY elements must be the same type: %s", node.getValues());
-            Type arrayType = metadata.getTypeManager().getParameterizedType(ARRAY.getName(), ImmutableList.of(type.getTypeSignature()), ImmutableList.of());
+            Type arrayType = typeManager.getParameterizedType(ARRAY.getName(), ImmutableList.of(type.getTypeSignature()), ImmutableList.of());
             expressionTypes.put(node, arrayType);
             return arrayType;
         }
@@ -561,13 +560,13 @@ public class ExpressionAnalyzer
         @Override
         protected Type visitGenericLiteral(GenericLiteral node, AnalysisContext context)
         {
-            Type type = metadata.getType(parseTypeSignature(node.getType()));
+            Type type = typeManager.getType(parseTypeSignature(node.getType()));
             if (type == null) {
                 throw new SemanticException(TYPE_MISMATCH, node, "Unknown type: " + node.getType());
             }
 
             try {
-                metadata.getFunctionRegistry().getCoercion(VARCHAR, type);
+                functionRegistry.getCoercion(VARCHAR, type);
             }
             catch (IllegalArgumentException e) {
                 throw new SemanticException(TYPE_MISMATCH, node, "No literal form for type %s", type);
@@ -670,10 +669,10 @@ public class ExpressionAnalyzer
                 argumentTypes.add(process(expression, context).getTypeSignature());
             }
 
-            FunctionInfo function = metadata.resolveFunction(node.getName(), argumentTypes.build(), context.isApproximate());
+            FunctionInfo function = functionRegistry.resolveFunction(node.getName(), argumentTypes.build(), context.isApproximate());
             for (int i = 0; i < node.getArguments().size(); i++) {
                 Expression expression = node.getArguments().get(i);
-                Type type = metadata.getType(function.getArgumentTypes().get(i));
+                Type type = typeManager.getType(function.getArgumentTypes().get(i));
                 checkNotNull(type, "Type %s not found", function.getArgumentTypes().get(i));
                 if (node.isDistinct() && !type.isComparable()) {
                     throw new SemanticException(TYPE_MISMATCH, node, "DISTINCT can only be applied to comparable types (actual: %s)", type);
@@ -682,7 +681,7 @@ public class ExpressionAnalyzer
             }
             resolvedFunctions.put(node, function);
 
-            Type type = metadata.getType(function.getReturnType());
+            Type type = typeManager.getType(function.getReturnType());
             expressionTypes.put(node, type);
 
             return type;
@@ -696,7 +695,7 @@ public class ExpressionAnalyzer
                 throw new SemanticException(TYPE_MISMATCH, node.getExpression(), "Type of argument to extract must be DATE, TIME, TIMESTAMP, or INTERVAL (actual %s)", type);
             }
             Extract.Field field = node.getField();
-            if ((field == TIMEZONE_HOUR || field == TIMEZONE_MINUTE) && !(type == TIME_WITH_TIME_ZONE || type == TIMESTAMP_WITH_TIME_ZONE)) {
+            if ((field == TIMEZONE_HOUR || field == TIMEZONE_MINUTE) && !(type.equals(TIME_WITH_TIME_ZONE) || type.equals(TIMESTAMP_WITH_TIME_ZONE))) {
                 throw new SemanticException(TYPE_MISMATCH, node.getExpression(), "Type of argument to extract time zone field must have a time zone (actual %s)", type);
             }
 
@@ -706,13 +705,13 @@ public class ExpressionAnalyzer
 
         private boolean isDateTimeType(Type type)
         {
-            return type == DATE ||
-                    type == TIME ||
-                    type == TIME_WITH_TIME_ZONE ||
-                    type == TIMESTAMP ||
-                    type == TIMESTAMP_WITH_TIME_ZONE ||
-                    type == INTERVAL_DAY_TIME ||
-                    type == INTERVAL_YEAR_MONTH;
+            return type.equals(DATE) ||
+                    type.equals(TIME) ||
+                    type.equals(TIME_WITH_TIME_ZONE) ||
+                    type.equals(TIMESTAMP) ||
+                    type.equals(TIMESTAMP_WITH_TIME_ZONE) ||
+                    type.equals(INTERVAL_DAY_TIME) ||
+                    type.equals(INTERVAL_YEAR_MONTH);
         }
 
         @Override
@@ -724,19 +723,19 @@ public class ExpressionAnalyzer
         @Override
         public Type visitCast(Cast node, AnalysisContext context)
         {
-            Type type = metadata.getType(parseTypeSignature(node.getType()));
+            Type type = typeManager.getType(parseTypeSignature(node.getType()));
             if (type == null) {
                 throw new SemanticException(TYPE_MISMATCH, node, "Unknown type: " + node.getType());
             }
 
-            if (type == UNKNOWN) {
+            if (type.equals(UNKNOWN)) {
                 throw new SemanticException(TYPE_MISMATCH, node, "UNKNOWN is not a valid type");
             }
 
             Type value = process(node.getExpression(), context);
-            if (value != UNKNOWN) {
+            if (!value.equals(UNKNOWN)) {
                 try {
-                    metadata.getFunctionRegistry().getCoercion(value, type);
+                    functionRegistry.getCoercion(value, type);
                 }
                 catch (OperatorNotFoundException e) {
                     throw new SemanticException(TYPE_MISMATCH, node, "Cannot cast %s to %s", value, type);
@@ -784,7 +783,7 @@ public class ExpressionAnalyzer
         @Override
         protected Type visitSubqueryExpression(SubqueryExpression node, AnalysisContext context)
         {
-            StatementAnalyzer analyzer = new StatementAnalyzer(analysis, metadata, sqlParser, session, experimentalSyntaxEnabled, Optional.empty());
+            StatementAnalyzer analyzer = statementAnalyzerFactory.apply(node);
             TupleDescriptor descriptor = analyzer.process(node.getQuery(), context);
 
             // Scalar subqueries should only produce one column
@@ -812,7 +811,7 @@ public class ExpressionAnalyzer
         @Override
         protected Type visitExpression(Expression node, AnalysisContext context)
         {
-            throw new UnsupportedOperationException("not yet implemented: " + node.getClass().getName());
+            throw new SemanticException(NOT_SUPPORTED, node, "not yet implemented: " + node.getClass().getName());
         }
 
         private Type getOperator(AnalysisContext context, Expression node, OperatorType operatorType, Expression... arguments)
@@ -824,7 +823,7 @@ public class ExpressionAnalyzer
 
             FunctionInfo operatorInfo;
             try {
-                operatorInfo = metadata.resolveOperator(operatorType, argumentTypes.build());
+                operatorInfo = functionRegistry.resolveOperator(operatorType, argumentTypes.build());
             }
             catch (OperatorNotFoundException e) {
                 throw new SemanticException(TYPE_MISMATCH, node, e.getMessage());
@@ -832,11 +831,11 @@ public class ExpressionAnalyzer
 
             for (int i = 0; i < arguments.length; i++) {
                 Expression expression = arguments[i];
-                Type type = metadata.getType(operatorInfo.getArgumentTypes().get(i));
+                Type type = typeManager.getType(operatorInfo.getArgumentTypes().get(i));
                 coerceType(context, expression, type, String.format("Operator %s argument %d", operatorInfo, i));
             }
 
-            Type type = metadata.getType(operatorInfo.getReturnType());
+            Type type = typeManager.getType(operatorInfo.getReturnType());
             expressionTypes.put(node, type);
 
             return type;
@@ -957,7 +956,7 @@ public class ExpressionAnalyzer
             Session session,
             Metadata metadata,
             SqlParser sqlParser,
-            final Map<Symbol, Type> types,
+            Map<Symbol, Type> types,
             Iterable<? extends Expression> expressions)
     {
         List<Field> fields = DependencyExtractor.extractUnique(expressions).stream()
@@ -994,7 +993,7 @@ public class ExpressionAnalyzer
             TupleDescriptor tupleDescriptor,
             Iterable<? extends Expression> expressions)
     {
-        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(new Analysis(), session, metadata, sqlParser, false);
+        ExpressionAnalyzer analyzer = create(new Analysis(), session, metadata, sqlParser, false);
         for (Expression expression : expressions) {
             analyzer.analyze(expression, tupleDescriptor, new AnalysisContext());
         }
@@ -1015,7 +1014,7 @@ public class ExpressionAnalyzer
             AnalysisContext context,
             Expression expression)
     {
-        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(analysis, session, metadata, sqlParser, approximateQueriesEnabled);
+        ExpressionAnalyzer analyzer = create(analysis, session, metadata, sqlParser, approximateQueriesEnabled);
         analyzer.analyze(expression, tupleDescriptor, context);
 
         IdentityHashMap<Expression, Type> expressionTypes = analyzer.getExpressionTypes();
@@ -1034,5 +1033,13 @@ public class ExpressionAnalyzer
         Set<InPredicate> subqueryInPredicates = analyzer.getSubqueryInPredicates();
 
         return new ExpressionAnalysis(expressionTypes, expressionCoercions, subqueryInPredicates);
+    }
+
+    public static ExpressionAnalyzer create(Analysis analysis, Session session, Metadata metadata, SqlParser sqlParser, boolean experimentalSyntaxEnabled)
+    {
+        return new ExpressionAnalyzer(
+                metadata.getFunctionRegistry(),
+                metadata.getTypeManager(),
+                node -> new StatementAnalyzer(analysis, metadata, sqlParser, session, experimentalSyntaxEnabled, Optional.empty()));
     }
 }

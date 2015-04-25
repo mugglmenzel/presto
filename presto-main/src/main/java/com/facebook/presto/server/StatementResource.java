@@ -34,6 +34,7 @@ import com.facebook.presto.execution.TaskId;
 import com.facebook.presto.execution.TaskInfo;
 import com.facebook.presto.operator.ExchangeClient;
 import com.facebook.presto.spi.ConnectorSession;
+import com.facebook.presto.spi.ErrorCode;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.type.StandardTypes;
@@ -91,6 +92,8 @@ import static com.facebook.presto.client.PrestoHeaders.PRESTO_CLEAR_SESSION;
 import static com.facebook.presto.client.PrestoHeaders.PRESTO_SET_SESSION;
 import static com.facebook.presto.server.ResourceUtil.assertRequest;
 import static com.facebook.presto.server.ResourceUtil.createSessionForRequest;
+import static com.facebook.presto.spi.StandardErrorCode.INTERNAL_ERROR;
+import static com.facebook.presto.spi.StandardErrorCode.toErrorType;
 import static com.facebook.presto.util.Failures.toFailure;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -287,6 +290,7 @@ public class StatementResource
             if (lastResultPath != null && requestedPath.equals(lastResultPath)) {
                 // tell query manager we are still interested in the query
                 queryManager.getQueryInfo(queryId);
+                queryManager.recordHeartbeat(queryId);
                 return lastResult;
             }
 
@@ -311,6 +315,7 @@ public class StatementResource
             // get the query info before returning
             // force update if query manager is closed
             QueryInfo queryInfo = queryManager.getQueryInfo(queryId);
+            queryManager.recordHeartbeat(queryId);
 
             // if we have received all of the output data and the query is not marked as done, wait for the query to finish
             if (exchangeClient.isClosed() && !queryInfo.getState().isDone()) {
@@ -384,6 +389,7 @@ public class StatementResource
             // wait for query to start
             QueryInfo queryInfo = queryManager.getQueryInfo(queryId);
             while (maxWait.toMillis() > 1 && !isQueryStarted(queryInfo)) {
+                queryManager.recordHeartbeat(queryId);
                 maxWait = queryManager.waitForStateChange(queryId, queryInfo.getState(), maxWait);
                 queryInfo = queryManager.getQueryInfo(queryId);
             }
@@ -620,7 +626,23 @@ public class StatementResource
                 log.warn("Query %s in state %s has no failure info", queryInfo.getQueryId(), state);
                 failure = toFailure(new RuntimeException(format("Query is %s (reason unknown)", state))).toFailureInfo();
             }
-            return new QueryError(failure.getMessage(), null, 0, failure.getErrorLocation(), failure);
+
+            ErrorCode errorCode;
+            if (queryInfo.getErrorCode() != null) {
+                errorCode = queryInfo.getErrorCode();
+            }
+            else {
+                errorCode = INTERNAL_ERROR.toErrorCode();
+                log.warn("Failed query %s has no error code", queryInfo.getQueryId());
+            }
+            return new QueryError(
+                    failure.getMessage(),
+                    null,
+                    errorCode.getCode(),
+                    errorCode.getName(),
+                    toErrorType(errorCode.getCode()).toString(),
+                    failure.getErrorLocation(),
+                    failure);
         }
 
         private static class RowIterable

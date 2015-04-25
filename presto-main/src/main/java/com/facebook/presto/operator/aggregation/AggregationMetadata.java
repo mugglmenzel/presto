@@ -34,9 +34,11 @@ import java.util.List;
 import java.util.Set;
 
 import static com.facebook.presto.operator.aggregation.AggregationMetadata.ParameterMetadata.ParameterType.BLOCK_INDEX;
+import static com.facebook.presto.operator.aggregation.AggregationMetadata.ParameterMetadata.ParameterType.BLOCK_INPUT_CHANNEL;
 import static com.facebook.presto.operator.aggregation.AggregationMetadata.ParameterMetadata.ParameterType.INPUT_CHANNEL;
-import static com.facebook.presto.operator.aggregation.AggregationMetadata.ParameterMetadata.ParameterType.NULLABLE_INPUT_CHANNEL;
+import static com.facebook.presto.operator.aggregation.AggregationMetadata.ParameterMetadata.ParameterType.NULLABLE_BLOCK_INPUT_CHANNEL;
 import static com.facebook.presto.operator.aggregation.AggregationMetadata.ParameterMetadata.ParameterType.SAMPLE_WEIGHT;
+import static com.facebook.presto.operator.aggregation.AggregationMetadata.ParameterMetadata.ParameterType.STATE;
 import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -56,7 +58,6 @@ public class AggregationMetadata
     private final MethodHandle combineFunction;
     @Nullable
     private final MethodHandle outputFunction;
-    private final Class<?> stateInterface;
     private final AccumulatorStateSerializer<?> stateSerializer;
     private final AccumulatorStateFactory<?> stateFactory;
     private final Type outputType;
@@ -92,7 +93,6 @@ public class AggregationMetadata
         this.intermediateInputFunction = intermediateInputFunction;
         this.combineFunction = combineFunction;
         this.outputFunction = outputFunction;
-        this.stateInterface = checkNotNull(stateInterface, "stateInterface is null");
         this.stateSerializer = checkNotNull(stateSerializer, "stateSerializer is null");
         this.stateFactory = checkNotNull(stateFactory, "stateFactory is null");
         this.approximate = approximate;
@@ -156,11 +156,6 @@ public class AggregationMetadata
         return outputFunction;
     }
 
-    public Class<?> getStateInterface()
-    {
-        return stateInterface;
-    }
-
     public AccumulatorStateSerializer<?> getStateSerializer()
     {
         return stateSerializer;
@@ -181,15 +176,22 @@ public class AggregationMetadata
         Class<?>[] parameters = method.type().parameterArray();
         checkArgument(stateInterface == parameters[0], "First argument of aggregation input function must be %s", stateInterface.getSimpleName());
         checkArgument(parameters.length > 0, "Aggregation input function must have at least one parameter");
-        checkArgument(parameterMetadatas.get(0).getParameterType() == ParameterMetadata.ParameterType.STATE, "First parameter must be state");
+        checkArgument(parameterMetadatas.get(0).getParameterType() == STATE, "First parameter must be state");
         for (int i = 1; i < parameters.length; i++) {
             ParameterMetadata metadata = parameterMetadatas.get(i);
             switch (metadata.getParameterType()) {
-                case NULLABLE_INPUT_CHANNEL:
-                    checkArgument(parameters[i] == Block.class, "Parameter must be Block if it has @Nullable");
+                case BLOCK_INPUT_CHANNEL:
+                case NULLABLE_BLOCK_INPUT_CHANNEL:
+                    checkArgument(parameters[i] == Block.class, "Parameter must be Block if it has @BlockPosition");
                     break;
                 case INPUT_CHANNEL:
                     checkArgument(SUPPORTED_PARAMETER_TYPES.contains(parameters[i]), "Unsupported type: %s", parameters[i].getSimpleName());
+                    checkArgument(parameters[i] == metadata.getSqlType().getJavaType(),
+                            "Expected method %s parameter %s type to be %s (%s)",
+                            method,
+                            i,
+                            metadata.getSqlType().getJavaType().getName(),
+                            metadata.getSqlType());
                     break;
                 case BLOCK_INDEX:
                     checkArgument(parameters[i] == int.class, "Block index parameter must be an int");
@@ -229,7 +231,9 @@ public class AggregationMetadata
     {
         int parameters = 0;
         for (ParameterMetadata metadata : metadatas) {
-            if (metadata.getParameterType() == INPUT_CHANNEL || metadata.getParameterType() == NULLABLE_INPUT_CHANNEL) {
+            if (metadata.getParameterType() == INPUT_CHANNEL ||
+                    metadata.getParameterType() == BLOCK_INPUT_CHANNEL ||
+                    metadata.getParameterType() == NULLABLE_BLOCK_INPUT_CHANNEL) {
                 parameters++;
             }
         }
@@ -249,12 +253,13 @@ public class AggregationMetadata
 
         public ParameterMetadata(ParameterType parameterType, Type sqlType)
         {
-            checkArgument((sqlType == null) == (parameterType != INPUT_CHANNEL && parameterType != NULLABLE_INPUT_CHANNEL), "sqlType must be provided only for input channels");
+            checkArgument((sqlType == null) == (parameterType == BLOCK_INDEX || parameterType == SAMPLE_WEIGHT || parameterType == STATE),
+                    "sqlType must be provided only for input channels");
             this.parameterType = parameterType;
             this.sqlType = sqlType;
         }
 
-        public static ParameterMetadata fromAnnotations(Annotation[] annotations, String methodName, TypeManager typeManager)
+        public static ParameterMetadata fromAnnotations(Annotation[] annotations, String methodName, TypeManager typeManager, boolean sampleWeightAllowed)
         {
             List<Annotation> baseTypes = Arrays.asList(annotations).stream()
                     .filter(annotation -> annotation instanceof SqlType || annotation instanceof BlockIndex || annotation instanceof SampleWeight)
@@ -263,22 +268,35 @@ public class AggregationMetadata
             checkArgument(baseTypes.size() == 1, "Parameter of %s must have exactly one of @SqlType, @BlockIndex, and @SampleWeight", methodName);
 
             boolean nullable = Arrays.asList(annotations).stream().anyMatch(annotation -> annotation instanceof NullablePosition);
+            boolean isBlock = Arrays.asList(annotations).stream().anyMatch(annotation -> annotation instanceof BlockPosition);
 
             Annotation annotation = baseTypes.get(0);
-            checkArgument(!nullable || (annotation instanceof SqlType), "%s contains a parameters with @Nullable that is not @SqlType", methodName);
+            checkArgument((!isBlock  && !nullable) || (annotation instanceof SqlType),
+                    "%s contains a parameter with @BlockPosition and/or @NullablePosition that is not @SqlType", methodName);
             if (annotation instanceof SqlType) {
                 TypeSignature signature = parseTypeSignature(((SqlType) annotation).value());
-                if (nullable) {
-                    return new ParameterMetadata(NULLABLE_INPUT_CHANNEL, typeManager.getType(signature));
+                if (isBlock) {
+                    if (nullable) {
+                        return new ParameterMetadata(NULLABLE_BLOCK_INPUT_CHANNEL, typeManager.getType(signature));
+                    }
+                    else {
+                        return new ParameterMetadata(BLOCK_INPUT_CHANNEL, typeManager.getType(signature));
+                    }
                 }
                 else {
-                    return new ParameterMetadata(INPUT_CHANNEL, typeManager.getType(signature));
+                    if (nullable) {
+                        throw new IllegalArgumentException(methodName + " contains a parameter with @NullablePosition that is not @BlockPosition");
+                    }
+                    else {
+                        return new ParameterMetadata(INPUT_CHANNEL, typeManager.getType(signature));
+                    }
                 }
             }
             else if (annotation instanceof BlockIndex) {
                 return new ParameterMetadata(BLOCK_INDEX);
             }
             else if (annotation instanceof SampleWeight) {
+                checkArgument(sampleWeightAllowed, "@SampleWeight only allowed in approximate aggregations");
                 return new ParameterMetadata(SAMPLE_WEIGHT);
             }
             else {
@@ -299,7 +317,8 @@ public class AggregationMetadata
         public enum ParameterType
         {
             INPUT_CHANNEL,
-            NULLABLE_INPUT_CHANNEL,
+            BLOCK_INPUT_CHANNEL,
+            NULLABLE_BLOCK_INPUT_CHANNEL,
             BLOCK_INDEX,
             SAMPLE_WEIGHT,
             STATE

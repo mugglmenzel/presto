@@ -14,7 +14,10 @@
 package com.facebook.presto.metadata;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ColumnMetadata;
+import com.facebook.presto.spi.Constraint;
+import com.facebook.presto.spi.block.BlockEncodingSerde;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
 import com.facebook.presto.spi.type.TypeSignature;
@@ -27,6 +30,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 public interface Metadata
 {
@@ -55,6 +59,12 @@ public interface Metadata
      */
     @NotNull
     Optional<TableHandle> getTableHandle(Session session, QualifiedTableName tableName);
+
+    @NotNull
+    List<TableLayoutResult> getLayouts(TableHandle tableHandle, Constraint<ColumnHandle> constraint, Optional<Set<ColumnHandle>> desiredColumns);
+
+    @NotNull
+    TableLayout getLayout(TableLayoutHandle handle);
 
     /**
      * Return the metadata for the specified table handle.
@@ -135,6 +145,11 @@ public interface Metadata
     void commitCreateTable(OutputTableHandle tableHandle, Collection<Slice> fragments);
 
     /**
+     * Rollback a table creation
+     */
+    void rollbackCreateTable(OutputTableHandle tableHandle);
+
+    /**
      * Begin insert query
      */
     InsertTableHandle beginInsert(Session session, TableHandle tableHandle);
@@ -143,6 +158,11 @@ public interface Metadata
      * Commit insert query
      */
     void commitInsert(InsertTableHandle tableHandle, Collection<Slice> fragments);
+
+    /**
+     * Rollback insert query
+     */
+    void rollbackInsert(InsertTableHandle tableHandle);
 
     /**
      * Gets all the loaded catalogs
@@ -183,4 +203,6 @@ public interface Metadata
     FunctionRegistry getFunctionRegistry();
 
     TypeManager getTypeManager();
+
+    BlockEncodingSerde getBlockEncodingSerde();
 }
