@@ -40,8 +40,10 @@ public class TestCachingDynamoMetadataProvider
     {
         String filePath = DynamoTestingUtils.createTestMetadataFile();
 
-        mockSession = new MockDynamoSession(CONNECTOR_ID,
-                new DynamoClientConfig());
+        DynamoClientConfig config = new DynamoClientConfig();
+        config.setMetadataFile(filePath);
+
+        mockSession = new MockDynamoSession(CONNECTOR_ID, config);
         ListeningExecutorService executor = listeningDecorator(newCachedThreadPool(daemonThreadsNamed("test-%s")));
         schemaProvider = new CachingDynamoAwsMetadataProvider(executor,
                 new Duration(5, TimeUnit.MINUTES), new Duration(1,
