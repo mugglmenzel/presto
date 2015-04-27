@@ -13,24 +13,27 @@
  */
 package integrationtests;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import io.airlift.log.Logger;
 
 import org.testng.annotations.Test;
 
+import com.beust.jcommander.Strings;
 import com.facebook.presto.dynamo.DynamoQueryRunner;
 import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.MaterializedRow;
-import com.facebook.presto.tests.AbstractTestIntegrationSmokeTest;
+import com.facebook.presto.tests.AbstractTestQueryFramework;
 
 @Test(singleThreaded = true)
-public class DynamoSqlQueryITCase extends AbstractTestIntegrationSmokeTest
+public class DynamoSqlQueryITCase extends AbstractTestQueryFramework
 {
     private static final Logger log = Logger.get(DynamoSqlQueryITCase.class);
 
     public DynamoSqlQueryITCase() throws Exception
     {
-        super(DynamoQueryRunner.createDynamoQueryRunner(),
-                DynamoQueryRunner.createSession());
+        super(DynamoQueryRunner.createDynamoQueryRunner());
     }
 
     @Test
@@ -61,10 +64,12 @@ public class DynamoSqlQueryITCase extends AbstractTestIntegrationSmokeTest
         int rowIndex = 0;
         for (MaterializedRow row : result) {
             log.info(String.format("---------- Row %s with %s fields---------", rowIndex++, row.getFieldCount()));
+            List<String> list = new ArrayList<String>();
             for (int i = 0; i < row.getFieldCount(); i++) {
                 Object obj = row.getField(i);
-                log.info("Field %s: %s", i, obj);
+                list.add(String.valueOf(obj));
             }
+            log.info("Field values: %s", String.join(", ", list));
         }
     }
 }
