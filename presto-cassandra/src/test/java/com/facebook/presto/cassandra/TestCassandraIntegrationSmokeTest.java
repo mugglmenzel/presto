@@ -43,4 +43,20 @@ public class TestCassandraIntegrationSmokeTest
         queryRunner.execute(createCassandraSession("presto_database"), "select * from presto_database.presto_test where key='key 2'");
         queryRunner.execute(createCassandraSession("presto_database"), "select * from presto_database.presto_test where key='key 3'");
     }
+
+    @Test
+    public void testMultipleStringPartitionKeys()
+    {
+        initializeTestData(new Date());
+
+        queryRunner.execute(createCassandraSession("presto_database"), "select * from presto_database.presto_test where key='key 1' or key='key 2'");
+    }
+
+    @Test
+    public void testAllPartitions()
+    {
+        initializeTestData(new Date());
+
+        queryRunner.execute(createCassandraSession("presto_database"), "select * from presto_database.presto_test");
+    }
 }

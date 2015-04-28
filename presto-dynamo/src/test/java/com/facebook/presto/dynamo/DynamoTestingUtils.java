@@ -13,6 +13,8 @@
  */
 package com.facebook.presto.dynamo;
 
+import io.airlift.log.Logger;
+
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -23,9 +25,12 @@ import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
 import com.facebook.presto.dynamo.aws.DynamoColumnAwsMetadata;
 import com.facebook.presto.dynamo.aws.DynamoTableAwsMetadata;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 
 public class DynamoTestingUtils
 {
+    private static final Logger log = Logger.get(DynamoTestingUtils.class);
+
     public static final String HOSTNAME = "localhost";
     public static final int PORT = 9142;
     public static final String REGION_AS_SCHEMA_NAME = "us_west_2";
@@ -44,31 +49,53 @@ public class DynamoTestingUtils
 
     public static String createTestMetadataFile()
     {
-        File tempFile;
-        try {
-            tempFile = File.createTempFile("dynamo-metadata-test", ".tmp");
-            tempFile.deleteOnExit();
-
-            String metadataFilePath = tempFile.getAbsolutePath();
-
-            DynamoAwsMetadata metadata = new DynamoAwsMetadata();
+        DynamoAwsMetadata metadata = new DynamoAwsMetadata();
+        {
             List<DynamoColumnAwsMetadata> columns = new ArrayList<DynamoColumnAwsMetadata>();
-            columns.add(new DynamoColumnAwsMetadata(
-                    DynamoTestingUtils.COLUMN_NAME_UserId, DynamoType.STRING,
+            columns.add(new DynamoColumnAwsMetadata("UserId",
+                    DynamoType.STRING, null));
+            columns.add(new DynamoColumnAwsMetadata("Version",
+                    DynamoType.LONG, null));
+            columns.add(new DynamoColumnAwsMetadata("UserName", DynamoType.STRING,
                     null));
-            columns.add(new DynamoColumnAwsMetadata(
-                    DynamoTestingUtils.COLUMN_NAME_UserName, DynamoType.STRING,
-                    null));
-            columns.add(new DynamoColumnAwsMetadata(
-                    DynamoTestingUtils.COLUMN_NAME_Age, DynamoType.LONG, null));
+            columns.add(new DynamoColumnAwsMetadata("Age", DynamoType.LONG, null));
             DynamoTableAwsMetadata table = new DynamoTableAwsMetadata(
-                    Regions.US_WEST_2.toString().toLowerCase(), DynamoTestingUtils.TABLE_NAME_Users, columns);
+                    Regions.US_WEST_1.toString().toLowerCase(), "Users", columns);
             metadata.getTables().add(table);
+        }
+        {
+            List<DynamoColumnAwsMetadata> columns = new ArrayList<DynamoColumnAwsMetadata>();
+            columns.add(new DynamoColumnAwsMetadata("BookName",
+                    DynamoType.STRING, null));
+            columns.add(new DynamoColumnAwsMetadata("Writers", DynamoType.LIST,
+                    ImmutableList.of(DynamoType.STRING)));
+            DynamoTableAwsMetadata table = new DynamoTableAwsMetadata(
+                    Regions.US_WEST_1.toString().toLowerCase(), "Books", columns);
+            metadata.getTables().add(table);
+        }
+        {
+            List<DynamoColumnAwsMetadata> columns = new ArrayList<DynamoColumnAwsMetadata>();
+            columns.add(new DynamoColumnAwsMetadata("UserId",
+                    DynamoType.STRING, null));
+            columns.add(new DynamoColumnAwsMetadata("Version",
+                    DynamoType.LONG, null));
+            columns.add(new DynamoColumnAwsMetadata("UserName", DynamoType.STRING,
+                    null));
+            columns.add(new DynamoColumnAwsMetadata("Age", DynamoType.LONG, null));
+            DynamoTableAwsMetadata table = new DynamoTableAwsMetadata(
+                    Regions.US_WEST_2.toString().toLowerCase(), "Users", columns);
+            metadata.getTables().add(table);
+        }
 
-            ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = new ObjectMapper();
+        try {
+            String json = mapper.writeValueAsString(metadata);
+            log.info("AWS Metadata: " + json);
+            File tempFile = File.createTempFile("dynamo-metadata-test", ".tmp");
+            tempFile.deleteOnExit();
             mapper.writeValue(tempFile, metadata);
-
-            return metadataFilePath;
+            log.info("Wrote AWS metadata to temp file: " + tempFile.getAbsolutePath());
+            return tempFile.getAbsolutePath();
         }
         catch (IOException e) {
             throw new RuntimeException(e);

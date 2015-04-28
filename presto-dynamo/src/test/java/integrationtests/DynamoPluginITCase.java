@@ -16,8 +16,8 @@ package integrationtests;
 import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 
-import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -26,14 +26,10 @@ import java.util.Map;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-import com.amazonaws.regions.Regions;
 import com.facebook.presto.dynamo.DynamoColumnHandle;
 import com.facebook.presto.dynamo.DynamoConnectorFactory;
 import com.facebook.presto.dynamo.DynamoPlugin;
-import com.facebook.presto.dynamo.DynamoType;
-import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
-import com.facebook.presto.dynamo.aws.DynamoColumnAwsMetadata;
-import com.facebook.presto.dynamo.aws.DynamoTableAwsMetadata;
+import com.facebook.presto.dynamo.DynamoTestingUtils;
 import com.facebook.presto.spi.Connector;
 import com.facebook.presto.spi.ConnectorColumnHandle;
 import com.facebook.presto.spi.ConnectorFactory;
@@ -50,7 +46,6 @@ import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TupleDomain;
 import com.facebook.presto.spi.type.TimeZoneKey;
 import com.facebook.presto.spi.type.Type;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 
 public class DynamoPluginITCase
@@ -60,38 +55,7 @@ public class DynamoPluginITCase
     @Test
     public void testMetadata() throws Exception
     {
-        File tempFile = File.createTempFile("dynamo-metadata-test", ".tmp");
-        tempFile.deleteOnExit();
-
-        String metadataFilePath = tempFile.getAbsolutePath();
-
-        DynamoAwsMetadata metadata = new DynamoAwsMetadata();
-        {
-            List<DynamoColumnAwsMetadata> columns = new ArrayList<DynamoColumnAwsMetadata>();
-            columns.add(new DynamoColumnAwsMetadata("UserId",
-                    DynamoType.STRING, null));
-            columns.add(new DynamoColumnAwsMetadata("Version",
-                    DynamoType.LONG, null));
-            DynamoTableAwsMetadata table = new DynamoTableAwsMetadata(
-                    Regions.US_WEST_2.toString().toLowerCase(), "Users", columns);
-            metadata.getTables().add(table);
-        }
-        {
-            List<DynamoColumnAwsMetadata> columns = new ArrayList<DynamoColumnAwsMetadata>();
-            columns.add(new DynamoColumnAwsMetadata("BookName",
-                    DynamoType.STRING, null));
-            columns.add(new DynamoColumnAwsMetadata("Writers", DynamoType.LIST,
-                    ImmutableList.of(DynamoType.STRING)));
-            DynamoTableAwsMetadata table = new DynamoTableAwsMetadata(
-                    Regions.US_WEST_2.toString().toLowerCase(), "Books", columns);
-            metadata.getTables().add(table);
-        }
-
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.writeValue(tempFile, metadata);
-
-        String json = mapper.writeValueAsString(metadata);
-        log.info("AWS Metadata: " + json);
+        String metadataFilePath = DynamoTestingUtils.createTestMetadataFile();
 
         Map<String, String> requiredConfig = new HashMap<String, String>();
         requiredConfig.put("dynamo.metadata-file", metadataFilePath);
@@ -116,18 +80,23 @@ public class DynamoPluginITCase
 
         List<String> schemaNames = connector.getMetadata().listSchemaNames(
                 session);
-        Assert.assertEquals(schemaNames, metadata.getRegionsAsSchemaNames());
+        Collections.sort(schemaNames);
+        Assert.assertEquals(schemaNames, ImmutableList.of("us_west_1", "us_west_2"));
 
         List<SchemaTableName> schemaTableNames = connector.getMetadata()
                 .listTables(null, null);
+        Assert.assertEquals(schemaTableNames.size(), 3);
+
+        schemaTableNames = connector.getMetadata()
+                .listTables(null, "us_west_1");
         Assert.assertEquals(schemaTableNames.size(), 2);
 
         schemaTableNames = connector.getMetadata()
                 .listTables(null, "us_west_2");
-        Assert.assertEquals(schemaTableNames.size(), 2);
+        Assert.assertEquals(schemaTableNames.size(), 1);
 
         schemaTableNames = connector.getMetadata()
-                .listTables(null, "us_west_1");
+                .listTables(null, "us_east_1");
         Assert.assertEquals(schemaTableNames.size(), 0);
 
         ConnectorMetadata connectorMetadata = connector.getMetadata();
