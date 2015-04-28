@@ -20,7 +20,6 @@ import io.airlift.log.Logger;
 
 import org.testng.annotations.Test;
 
-import com.beust.jcommander.Strings;
 import com.facebook.presto.dynamo.DynamoQueryRunner;
 import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.MaterializedRow;
