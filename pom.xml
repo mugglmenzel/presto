@@ -10,7 +10,7 @@
 
     <groupId>com.facebook.presto</groupId>
     <artifactId>presto-root</artifactId>
-    <version>0.101-SNAPSHOT</version>
+    <version>0.102-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>presto-root</name>
@@ -43,8 +43,9 @@
         <air.check.skip-checkstyle>false</air.check.skip-checkstyle>
 
         <dep.antlr.version>4.3</dep.antlr.version>
-        <dep.airlift.version>0.107-SNAPSHOT</dep.airlift.version>
+        <dep.airlift.version>0.108</dep.airlift.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
+        <dep.slice.version>0.11</dep.slice.version>
 
         <cli.skip-execute>true</cli.skip-execute>
         <cli.main-class>None</cli.main-class>
@@ -396,6 +397,12 @@
             </dependency>
 
             <dependency>
+                <groupId>io.airlift</groupId>
+                <artifactId>joni</artifactId>
+                <version>2.1.5.1</version>
+            </dependency>
+
+            <dependency>
                 <groupId>io.airlift.tpch</groupId>
                 <artifactId>tpch</artifactId>
                 <version>0.4</version>
@@ -456,12 +463,6 @@
             </dependency>
 
             <dependency>
-                <groupId>org.jruby.joni</groupId>
-                <artifactId>joni</artifactId>
-                <version>2.0.0</version>
-            </dependency>
-
-            <dependency>
                 <groupId>com.facebook.thirdparty</groupId>
                 <artifactId>libsvm</artifactId>
                 <version>3.18.1</version>
@@ -477,12 +478,6 @@
                 <groupId>org.postgresql</groupId>
                 <artifactId>postgresql</artifactId>
                 <version>9.3-1102-jdbc41</version>
-            </dependency>
-
-            <dependency>
-                <groupId>org.jruby.jcodings</groupId>
-                <artifactId>jcodings</artifactId>
-                <version>1.0.8</version>
             </dependency>
 
             <dependency>

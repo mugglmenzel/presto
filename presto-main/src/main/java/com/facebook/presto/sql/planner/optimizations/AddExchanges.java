@@ -47,6 +47,7 @@ import com.facebook.presto.sql.planner.plan.MarkDistinctNode;
 import com.facebook.presto.sql.planner.plan.OutputNode;
 import com.facebook.presto.sql.planner.plan.PlanNode;
 import com.facebook.presto.sql.planner.plan.PlanVisitor;
+import com.facebook.presto.sql.planner.plan.ProjectNode;
 import com.facebook.presto.sql.planner.plan.RowNumberNode;
 import com.facebook.presto.sql.planner.plan.SemiJoinNode;
 import com.facebook.presto.sql.planner.plan.SortNode;
@@ -88,6 +89,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 import static com.facebook.presto.SystemSessionProperties.isBigQueryEnabled;
 import static com.facebook.presto.sql.ExpressionUtils.combineConjuncts;
@@ -100,6 +102,8 @@ import static com.facebook.presto.sql.planner.plan.AggregationNode.Step.FINAL;
 import static com.facebook.presto.sql.planner.plan.AggregationNode.Step.PARTIAL;
 import static com.facebook.presto.sql.planner.plan.ExchangeNode.gatheringExchange;
 import static com.facebook.presto.sql.planner.plan.ExchangeNode.partitionedExchange;
+import static com.facebook.presto.sql.planner.plan.JoinNode.Type.FULL;
+import static com.facebook.presto.sql.planner.plan.JoinNode.Type.RIGHT;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableSet;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -154,6 +158,37 @@ public class AddExchanges
         protected PlanWithProperties visitPlan(PlanNode node, PreferredProperties preferred)
         {
             return rebaseAndDeriveProperties(node, planChild(node, preferred));
+        }
+
+        @Override
+        public PlanWithProperties visitProject(ProjectNode node, PreferredProperties preferred)
+        {
+            Map<Symbol, Symbol> identities = computeIdentityTranslations(node.getAssignments());
+            List<LocalProperty<Symbol>> localProperties = LocalProperties.translate(preferred.getLocalProperties(), column -> Optional.ofNullable(identities.get(column)));
+
+            // TODO: Refactor this into PreferredProperties so that it is not duplicated
+            if (preferred.getPartitioningProperties().isPresent()) {
+                PartitioningPreferences partitioning = preferred.getPartitioningProperties().get();
+                if (partitioning.isHashPartitioned()) {
+                    List<Symbol> hashingSymbols = partitioning.getHashPartitioningColumns().get();
+                    if (identities.keySet().containsAll(hashingSymbols)) {
+                        List<Symbol> translated = partitioning.getHashPartitioningColumns().get().stream().map(identities::get).collect(Collectors.toList());
+                        return rebaseAndDeriveProperties(node, planChild(node, PreferredProperties.hashPartitionedWithLocal(translated, localProperties)));
+                    }
+                }
+                if (partitioning.isPartitioned()) {
+                    // check if we can satisfy any partitioning requirements
+                    Set<Symbol> symbols = partitioning.getPartitioningColumns().get();
+                    Set<Symbol> translated = Sets.intersection(identities.keySet(), symbols).stream().map(identities::get).collect(Collectors.toSet());
+                    if (!translated.isEmpty()) {
+                        return rebaseAndDeriveProperties(node, planChild(node, PreferredProperties.partitionedWithLocal(translated, localProperties)));
+                    }
+                }
+                else {
+                    return rebaseAndDeriveProperties(node, planChild(node, PreferredProperties.unpartitionedWithLocal(localProperties)));
+                }
+            }
+            return rebaseAndDeriveProperties(node, planChild(node, PreferredProperties.local(localProperties)));
         }
 
         @Override
@@ -648,17 +683,17 @@ public class AddExchanges
         @Override
         public PlanWithProperties visitJoin(JoinNode node, PreferredProperties preferred)
         {
-            checkArgument(node.getType() != JoinNode.Type.RIGHT, "Expected RIGHT joins to be normalized to LEFT joins");
-
             List<Symbol> leftSymbols = Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getLeft);
             List<Symbol> rightSymbols = Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getRight);
 
             PlanWithProperties left;
             PlanWithProperties right;
 
-            if (distributedJoins) {
-                 left  = node.getLeft().accept(this, PreferredProperties.hashPartitioned(leftSymbols));
-                 right = node.getRight().accept(this, PreferredProperties.hashPartitioned(rightSymbols));
+            if (distributedJoins || node.getType() == FULL || node.getType() == RIGHT) {
+                // The implementation of full outer join only works if the data is hash partitioned. See LookupJoinOperators#buildSideOuterJoinUnvisitedPositions
+
+                left  = node.getLeft().accept(this, PreferredProperties.hashPartitioned(leftSymbols));
+                right = node.getRight().accept(this, PreferredProperties.hashPartitioned(rightSymbols));
 
                 // force partitioning
                 if (!left.getProperties().isHashPartitionedOn(leftSymbols)) {
@@ -674,6 +709,8 @@ public class AddExchanges
                 }
             }
             else {
+                // It can only be INNER or LEFT here. Therefore, no flipping is necessary even though the below code assumes the node is not RIGHT.
+
                 left = node.getLeft().accept(this, PreferredProperties.any());
                 right = node.getRight().accept(this, PreferredProperties.any());
 
@@ -859,7 +896,7 @@ public class AddExchanges
                     .addAll(preferencesFromParent.getLocalProperties())
                     .build();
 
-            Set<Symbol> partitioning = ImmutableSet.of();
+            Set<Symbol> partitioning = ImmutableSet.copyOf(partitioningColumns);
 
             // if the child plan is partitioned by the common columns between our requirements and
             // our parent's, it can satisfy both in one shot
@@ -912,6 +949,17 @@ public class AddExchanges
         {
             return PropertyDerivations.deriveProperties(result, inputProperties, metadata, session, symbolAllocator.getTypes(), parser);
         }
+    }
+
+    private static Map<Symbol, Symbol> computeIdentityTranslations(Map<Symbol, Expression> assignments)
+    {
+        Map<Symbol, Symbol> outputToInput = new HashMap<>();
+        for (Map.Entry<Symbol, Expression> assignment : assignments.entrySet()) {
+            if (assignment.getValue() instanceof QualifiedNameReference) {
+                outputToInput.put(assignment.getKey(), Symbol.fromQualifiedName(((QualifiedNameReference) assignment.getValue()).getName()));
+            }
+        }
+        return outputToInput;
     }
 
     @VisibleForTesting

@@ -81,19 +81,17 @@ public class PrestoResultSet
                     new DateTimeParser[] {
                             DateTimeFormat.forPattern("HH:mm:ss.SSS Z").getParser(),
                             DateTimeFormat.forPattern("HH:mm:ss.SSS ZZZ").getParser(),
-                    }
-            )
+                    })
             .toFormatter()
             .withOffsetParsed();
 
     private static final DateTimeFormatter TIMESTAMP_FORMATTER = DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss.SSS");
-    private static final DateTimeFormatter TIMESTAMP_WITH_TIME_ZONE_FORMATTER  = new DateTimeFormatterBuilder()
+    private static final DateTimeFormatter TIMESTAMP_WITH_TIME_ZONE_FORMATTER = new DateTimeFormatterBuilder()
             .append(DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss.SSS ZZZ").getPrinter(),
                     new DateTimeParser[] {
                             DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss.SSS Z").getParser(),
                             DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss.SSS ZZZ").getParser(),
-                    }
-            )
+                    })
             .toFormatter()
             .withOffsetParsed();
 
@@ -206,48 +204,42 @@ public class PrestoResultSet
     public byte getByte(int columnIndex)
             throws SQLException
     {
-        Object value = column(columnIndex);
-        return (value != null) ? ((Number) value).byteValue() : 0;
+        return toNumber(column(columnIndex)).byteValue();
     }
 
     @Override
     public short getShort(int columnIndex)
             throws SQLException
     {
-        Object value = column(columnIndex);
-        return (value != null) ? ((Number) value).shortValue() : 0;
+        return toNumber(column(columnIndex)).shortValue();
     }
 
     @Override
     public int getInt(int columnIndex)
             throws SQLException
     {
-        Object value = column(columnIndex);
-        return (value != null) ? ((Number) value).intValue() : 0;
+        return toNumber(column(columnIndex)).intValue();
     }
 
     @Override
     public long getLong(int columnIndex)
             throws SQLException
     {
-        Object value = column(columnIndex);
-        return (value != null) ? ((Number) value).longValue() : 0;
+        return toNumber(column(columnIndex)).longValue();
     }
 
     @Override
     public float getFloat(int columnIndex)
             throws SQLException
     {
-        Object value = column(columnIndex);
-        return (value != null) ? ((Number) value).floatValue() : 0;
+        return toNumber(column(columnIndex)).floatValue();
     }
 
     @Override
     public double getDouble(int columnIndex)
             throws SQLException
     {
-        Object value = column(columnIndex);
-        return (value != null) ? ((Number) value).doubleValue() : 0;
+        return toNumber(column(columnIndex)).doubleValue();
     }
 
     @Override
@@ -402,48 +394,42 @@ public class PrestoResultSet
     public byte getByte(String columnLabel)
             throws SQLException
     {
-        Object value = column(columnLabel);
-        return (value != null) ? ((Number) value).byteValue() : 0;
+        return toNumber(column(columnLabel)).byteValue();
     }
 
     @Override
     public short getShort(String columnLabel)
             throws SQLException
     {
-        Object value = column(columnLabel);
-        return (value != null) ? ((Number) value).shortValue() : 0;
+        return toNumber(column(columnLabel)).shortValue();
     }
 
     @Override
     public int getInt(String columnLabel)
             throws SQLException
     {
-        Object value = column(columnLabel);
-        return (value != null) ? ((Number) value).intValue() : 0;
+        return toNumber(column(columnLabel)).intValue();
     }
 
     @Override
     public long getLong(String columnLabel)
             throws SQLException
     {
-        Object value = column(columnLabel);
-        return (value != null) ? ((Number) value).longValue() : 0;
+        return toNumber(column(columnLabel)).longValue();
     }
 
     @Override
     public float getFloat(String columnLabel)
             throws SQLException
     {
-        Object value = column(columnLabel);
-        return (value != null) ? ((Number) value).floatValue() : 0;
+        return toNumber(column(columnLabel)).floatValue();
     }
 
     @Override
     public double getDouble(String columnLabel)
             throws SQLException
     {
-        Object value = column(columnLabel);
-        return (value != null) ? ((Number) value).doubleValue() : 0;
+        return toNumber(column(columnLabel)).doubleValue();
     }
 
     @Override
@@ -1731,6 +1717,21 @@ public class PrestoResultSet
             throw new SQLException("Invalid column label: " + label);
         }
         return index;
+    }
+
+    private static Number toNumber(Object value)
+            throws SQLException
+    {
+        if (value == null) {
+            return 0;
+        }
+        if (value instanceof Number) {
+            return (Number) value;
+        }
+        if (value instanceof Boolean) {
+            return ((Boolean) value) ? 1 : 0;
+        }
+        throw new SQLException("Value is not a number: " + value.getClass().getCanonicalName());
     }
 
     private static List<Column> getColumns(StatementClient client)

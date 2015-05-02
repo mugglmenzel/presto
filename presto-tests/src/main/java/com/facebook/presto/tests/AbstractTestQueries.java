@@ -219,6 +219,11 @@ public abstract class AbstractTestQueries
                 "WITH a AS (VALUES (1.1, 2), (sin(3.3), 2+2)) " +
                 "SELECT * FROM a",
                 "VALUES (1.1, 2), (sin(3.3), 2+2)");
+
+        // implicity coersions
+        assertQuery("VALUES 1, 2.2, 3, 4.4");
+        assertQuery("VALUES (1, 2), (3.3, 4.4)");
+        assertQuery("VALUES true, 1.0 in (1, 2, 3)");
     }
 
     @Test
@@ -495,6 +500,24 @@ public abstract class AbstractTestQueries
             throws Exception
     {
         assertQuery("SELECT COUNT(DISTINCT clerk) as count, orderdate FROM orders GROUP BY orderdate ORDER BY count, orderdate");
+    }
+
+    @Test
+    public void testSingleDistinctOptimizer()
+            throws Exception
+    {
+        assertQuery("SELECT custkey, orderstatus, COUNT(DISTINCT orderkey) FROM orders GROUP BY custkey, orderstatus");
+        assertQuery("SELECT custkey, orderstatus, COUNT(DISTINCT orderkey), SUM(DISTINCT orderkey) FROM orders GROUP BY custkey, orderstatus");
+        assertQuery("" +
+                "SELECT custkey, COUNT(DISTINCT orderstatus) FROM (" +
+                "   SELECT orders.custkey AS custkey, orders.orderstatus AS orderstatus " +
+                "   FROM lineitem JOIN orders ON lineitem.orderkey = orders.orderkey AND orders.orderkey = lineitem.partkey " +
+                "   GROUP BY orders.custkey, orders.orderstatus" +
+                ") " +
+                "GROUP BY custkey");
+        assertQuery("SELECT custkey, COUNT(DISTINCT orderkey), COUNT(DISTINCT orderstatus) FROM orders GROUP BY custkey");
+
+        assertQuery("SELECT SUM(DISTINCT x) FROM (SELECT custkey, COUNT(DISTINCT orderstatus) x FROM orders GROUP BY custkey) t");
     }
 
     @Test
@@ -1325,6 +1348,116 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testSimpleFullJoin()
+            throws Exception
+    {
+        assertQuery("SELECT a, b FROM (VALUES (1), (2)) t (a) FULL OUTER JOIN (VALUES (1), (3)) u (b) ON a = b",
+                "SELECT * FROM (VALUES (1, 1), (2, NULL), (NULL, 3))");
+        assertQuery("SELECT COUNT(*) FROM lineitem FULL JOIN orders ON lineitem.orderkey = orders.orderkey",
+                "SELECT COUNT(*) FROM (" +
+                    "SELECT lineitem.orderkey, orders.orderkey AS o2 FROM lineitem LEFT OUTER JOIN orders ON lineitem.orderkey = orders.orderkey " +
+                    "UNION ALL " +
+                    "SELECT lineitem.orderkey, orders.orderkey AS o2 FROM lineitem RIGHT OUTER JOIN orders ON lineitem.orderkey = orders.orderkey " +
+                    "WHERE lineitem.orderkey IS NULL" +
+                ")");
+        assertQuery("SELECT COUNT(*) FROM lineitem FULL OUTER JOIN orders ON lineitem.orderkey = orders.orderkey",
+                "SELECT COUNT(*) FROM (" +
+                    "SELECT lineitem.orderkey, orders.orderkey AS o2 FROM lineitem LEFT OUTER JOIN orders ON lineitem.orderkey = orders.orderkey " +
+                    "UNION ALL " +
+                    "SELECT lineitem.orderkey, orders.orderkey AS o2 FROM lineitem RIGHT OUTER JOIN orders ON lineitem.orderkey = orders.orderkey " +
+                    "WHERE lineitem.orderkey IS NULL" +
+                ")");
+
+        // The above outer join queries will produce the same result even if they are inner join.
+        // The below query uses "orderkey = custkey" as join condition.
+        assertQuery("SELECT COUNT(*) FROM lineitem FULL JOIN orders ON lineitem.orderkey = orders.custkey",
+                "SELECT COUNT(*) FROM (" +
+                        "SELECT lineitem.orderkey, orders.orderkey AS o2 FROM lineitem LEFT OUTER JOIN orders ON lineitem.orderkey = orders.custkey " +
+                        "UNION ALL " +
+                        "SELECT lineitem.orderkey, orders.orderkey AS o2 FROM lineitem RIGHT OUTER JOIN orders ON lineitem.orderkey = orders.custkey " +
+                        "WHERE lineitem.orderkey IS NULL" +
+                        ")");
+    }
+
+    @Test
+    public void testFullJoinNormalizedToLeft()
+            throws Exception
+    {
+        assertQuery("SELECT COUNT(*) FROM lineitem FULL JOIN orders ON lineitem.orderkey = orders.orderkey WHERE lineitem.orderkey IS NOT NULL",
+                "SELECT COUNT(*) FROM lineitem LEFT OUTER JOIN orders ON lineitem.orderkey = orders.orderkey WHERE lineitem.orderkey IS NOT NULL");
+
+        // The above outer join queries will produce the same result even if they are inner join.
+        // The below query uses "orderkey = custkey" as join condition.
+        assertQuery("SELECT COUNT(*) FROM lineitem FULL JOIN orders ON lineitem.orderkey = orders.custkey WHERE lineitem.orderkey IS NOT NULL",
+                "SELECT COUNT(*) FROM lineitem LEFT OUTER JOIN orders ON lineitem.orderkey = orders.custkey WHERE lineitem.orderkey IS NOT NULL");
+    }
+
+    @Test
+    public void testFullJoinNormalizedToRight()
+            throws Exception
+    {
+        assertQuery("SELECT COUNT(*) FROM lineitem FULL JOIN orders ON lineitem.orderkey = orders.orderkey WHERE orders.orderkey IS NOT NULL",
+                "SELECT COUNT(*) FROM lineitem RIGHT OUTER JOIN orders ON lineitem.orderkey = orders.orderkey  WHERE orders.orderkey IS NOT NULL");
+
+        // The above outer join queries will produce the same result even if they are inner join.
+        // The below query uses "orderkey = custkey" as join condition.
+        assertQuery("SELECT COUNT(*) FROM lineitem FULL JOIN orders ON lineitem.orderkey = orders.custkey WHERE orders.custkey IS NOT NULL",
+                "SELECT COUNT(*) FROM lineitem RIGHT OUTER JOIN orders ON lineitem.orderkey = orders.custkey  WHERE orders.custkey IS NOT NULL");
+    }
+
+    @Test
+    public void testFullJoinWithRightConstantEquality()
+            throws Exception
+    {
+        assertQuery("SELECT COUNT(*) FROM (SELECT * FROM lineitem WHERE orderkey % 1024 = 0) lineitem FULL JOIN orders ON lineitem.orderkey = 1024",
+                "SELECT COUNT(*) FROM (" +
+                        "SELECT lineitem.orderkey, orders.orderkey AS o2 FROM (SELECT * FROM lineitem WHERE orderkey % 1024 = 0) lineitem LEFT OUTER JOIN orders ON lineitem.orderkey = 1024 " +
+                        "UNION ALL " +
+                        "SELECT lineitem.orderkey, orders.orderkey AS o2 FROM (SELECT * FROM lineitem WHERE orderkey % 1024 = 0) lineitem RIGHT OUTER JOIN orders ON lineitem.orderkey = 1024 " +
+                        "WHERE lineitem.orderkey IS NULL" +
+                        ")");
+    }
+
+    @Test
+    public void testFullJoinWithLeftConstantEquality()
+            throws Exception
+    {
+        assertQuery("SELECT COUNT(*) FROM (SELECT * FROM lineitem WHERE orderkey % 1024 = 0) lineitem FULL JOIN orders ON orders.orderkey = 1024",
+                "SELECT COUNT(*) FROM (" +
+                        "SELECT lineitem.orderkey, orders.orderkey AS o2 FROM (SELECT * FROM lineitem WHERE orderkey % 1024 = 0) lineitem LEFT OUTER JOIN orders ON orders.orderkey = 1024 " +
+                        "UNION ALL " +
+                        "SELECT lineitem.orderkey, orders.orderkey AS o2 FROM (SELECT * FROM lineitem WHERE orderkey % 1024 = 0) lineitem RIGHT OUTER JOIN orders ON orders.orderkey = 1024 " +
+                        "WHERE lineitem.orderkey IS NULL" +
+                        ")");
+    }
+
+    @Test
+    public void testSimpleFullJoinWithLeftConstantEquality()
+            throws Exception
+    {
+        assertQuery("SELECT COUNT(*) FROM lineitem FULL JOIN orders ON lineitem.orderkey = orders.orderkey AND orders.orderkey = 2",
+                "SELECT COUNT(*) FROM (" +
+                        "SELECT lineitem.orderkey, orders.orderkey AS o2 FROM lineitem LEFT OUTER JOIN orders ON lineitem.orderkey = orders.orderkey AND orders.orderkey = 2" +
+                        "UNION ALL " +
+                        "SELECT lineitem.orderkey, orders.orderkey AS o2 FROM lineitem RIGHT OUTER JOIN orders ON lineitem.orderkey = orders.orderkey AND orders.orderkey = 2" +
+                        "WHERE lineitem.orderkey IS NULL" +
+                        ")");
+    }
+
+    @Test
+    public void testSimpleFullJoinWithRightConstantEquality()
+            throws Exception
+    {
+        assertQuery("SELECT COUNT(*) FROM lineitem FULL JOIN orders ON lineitem.orderkey = orders.orderkey AND lineitem.orderkey = 2",
+                "SELECT COUNT(*) FROM (" +
+                        "SELECT lineitem.orderkey, orders.orderkey AS o2 FROM lineitem LEFT OUTER JOIN orders ON lineitem.orderkey = orders.orderkey AND lineitem.orderkey = 2" +
+                        "UNION ALL " +
+                        "SELECT lineitem.orderkey, orders.orderkey AS o2 FROM lineitem RIGHT OUTER JOIN orders ON lineitem.orderkey = orders.orderkey AND lineitem.orderkey = 2" +
+                        "WHERE lineitem.orderkey IS NULL" +
+                        ")");
+    }
+
+    @Test
     public void testSimpleLeftJoin()
             throws Exception
     {
@@ -1459,6 +1592,9 @@ public abstract class AbstractTestQueries
     {
         assertQuery("SELECT COUNT(*) FROM lineitem RIGHT JOIN orders ON lineitem.orderkey = orders.orderkey");
         assertQuery("SELECT COUNT(*) FROM lineitem RIGHT OUTER JOIN orders ON lineitem.orderkey = orders.orderkey");
+
+        assertQuery("SELECT COUNT(*) FROM lineitem RIGHT JOIN orders ON lineitem.orderkey = orders.custkey");
+        assertQuery("SELECT COUNT(*) FROM lineitem RIGHT OUTER JOIN orders ON lineitem.orderkey = orders.custkey");
     }
 
     @Test
@@ -1466,6 +1602,7 @@ public abstract class AbstractTestQueries
             throws Exception
     {
         assertQuery("SELECT COUNT(*) FROM lineitem RIGHT JOIN orders ON lineitem.orderkey = orders.orderkey WHERE lineitem.orderkey IS NOT NULL");
+        assertQuery("SELECT COUNT(*) FROM lineitem RIGHT JOIN orders ON lineitem.orderkey = orders.custkey WHERE lineitem.orderkey IS NOT NULL");
     }
 
     @Test
@@ -3090,6 +3227,20 @@ public abstract class AbstractTestQueries
                         "   UNION ALL " +
                         "   SELECT shipdate ds, orderkey FROM lineitem) a " +
                         "JOIN orders o ON (a.orderkey = o.orderkey)");
+    }
+
+    @Test
+    public void testUnionWithJoinOnNonTranslateableSymbols()
+            throws Exception
+    {
+        assertQuery("SELECT *\n" +
+                "FROM (SELECT orderdate ds, orderkey\n" +
+                "      FROM orders\n" +
+                "      UNION ALL\n" +
+                "      SELECT shipdate ds, orderkey\n" +
+                "      FROM lineitem) a\n" +
+                "JOIN orders o\n" +
+                "ON (substr(cast(a.ds AS VARCHAR), 6, 2) = substr(cast(o.orderdate AS VARCHAR), 6, 2) AND a.orderkey = o.orderkey)\n");
     }
 
     @Test
