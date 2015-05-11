@@ -20,8 +20,10 @@ import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.Range;
 import com.facebook.presto.spi.SortedRangeSet;
 import com.facebook.presto.spi.TupleDomain;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Multimap;
 import com.google.common.io.Files;
 import io.airlift.slice.Slice;
 import io.airlift.testing.FileUtils;
@@ -36,6 +38,7 @@ import java.io.File;
 import java.time.LocalDate;
 import java.time.ZonedDateTime;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -47,6 +50,7 @@ import static com.facebook.presto.raptor.storage.ShardStats.MAX_BINARY_INDEX_SIZ
 import static com.facebook.presto.spi.Range.greaterThan;
 import static com.facebook.presto.spi.Range.greaterThanOrEqual;
 import static com.facebook.presto.spi.Range.lessThan;
+import static com.facebook.presto.spi.StandardErrorCode.TRANSACTION_CONFLICT;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.spi.type.DateType.DATE;
@@ -124,6 +128,94 @@ public class TestDatabaseShardManager
 
         actual = getOnlyElement(getShardNodes(tableId, TupleDomain.all()));
         assertEquals(actual, new ShardNodes(shard, ImmutableSet.of("node1", "node2")));
+    }
+
+    @Test
+    public void testGetNodeTableShards()
+            throws Exception
+    {
+        long tableId = 1;
+        List<ColumnInfo> columns = ImmutableList.of(new ColumnInfo(1, BIGINT));
+        List<String> nodes = ImmutableList.of("node1", "node2", "node3");
+
+        ImmutableList.Builder<ShardInfo> inputShards = ImmutableList.builder();
+        Multimap<String, UUID> nodeShardMap = HashMultimap.create();
+        for (String node : nodes) {
+            UUID uuid = UUID.randomUUID();
+            nodeShardMap.put(node, uuid);
+            inputShards.add(shardInfo(uuid, node));
+        }
+
+        shardManager.createTable(tableId, columns);
+        shardManager.commitShards(tableId, columns, inputShards.build(), Optional.empty());
+
+        for (String node : nodes) {
+            Set<ShardMetadata> shardMetadata = shardManager.getNodeTableShards(node, tableId);
+            Set<UUID> expectedUuids = ImmutableSet.copyOf(nodeShardMap.get(node));
+            Set<UUID> actualUuids = shardMetadata.stream().map(ShardMetadata::getShardUuid).collect(toSet());
+            assertEquals(actualUuids, expectedUuids);
+        }
+
+        shardManager.dropTableShards(tableId);
+        for (String node : nodes) {
+            Set<ShardMetadata> shardMetadata = shardManager.getNodeTableShards(node, tableId);
+            assertEquals(shardMetadata.size(), 0);
+        }
+    }
+
+    @Test
+    public void testReplaceShards()
+            throws Exception
+    {
+        long tableId = 1;
+        List<ColumnInfo> columns = ImmutableList.of(new ColumnInfo(1, BIGINT));
+        List<String> nodes = ImmutableList.of("node1", "node2", "node3");
+        List<UUID> originalUuids = ImmutableList.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+
+        List<ShardInfo> oldShards = ImmutableList.<ShardInfo>builder()
+                .add(shardInfo(originalUuids.get(0), nodes.get(0)))
+                .add(shardInfo(originalUuids.get(1), nodes.get(1)))
+                .add(shardInfo(originalUuids.get(2), nodes.get(2)))
+                .build();
+
+        shardManager.createTable(tableId, columns);
+        shardManager.commitShards(tableId, columns, oldShards, Optional.empty());
+
+        List<UUID> expectedUuids = ImmutableList.of(UUID.randomUUID(), UUID.randomUUID());
+        List<ShardInfo> newShards = ImmutableList.<ShardInfo>builder()
+                .add(shardInfo(expectedUuids.get(0), nodes.get(0)))
+                .add(shardInfo(expectedUuids.get(1), nodes.get(0)))
+                .build();
+
+        Set<ShardMetadata> shardMetadata = shardManager.getNodeTableShards(nodes.get(0), tableId);
+        Set<Long> shardIds = shardMetadata.stream().map(ShardMetadata::getShardId).collect(toSet());
+        Set<UUID> replacedUuids = shardMetadata.stream().map(ShardMetadata::getShardUuid).collect(toSet());
+
+        shardManager.replaceShards(tableId, columns, shardIds, newShards);
+
+        shardMetadata = shardManager.getNodeTableShards(nodes.get(0), tableId);
+        Set<UUID> actualUuids = shardMetadata.stream().map(ShardMetadata::getShardUuid).collect(toSet());
+        assertEquals(actualUuids, ImmutableSet.copyOf(expectedUuids));
+
+        // Compute expected all uuids for this table
+        Set<UUID> expectedAllUuids = new HashSet<>(originalUuids);
+        expectedAllUuids.removeAll(replacedUuids);
+        expectedAllUuids.addAll(expectedUuids);
+
+        // check that shards are replaced in index table as well
+        Set<ShardNodes> shardNodes = ImmutableSet.copyOf(shardManager.getShardNodes(tableId, TupleDomain.<RaptorColumnHandle>all()));
+        Set<UUID> actualAllUuids = shardNodes.stream().map(ShardNodes::getShardUuid).collect(toSet());
+        assertEquals(actualAllUuids, expectedAllUuids);
+
+        // verify that conflicting updates are handled
+        newShards = ImmutableList.of(shardInfo(UUID.randomUUID(), nodes.get(0)));
+        try {
+            shardManager.replaceShards(tableId, columns, shardIds, newShards);
+            fail("expected exception");
+        }
+        catch (PrestoException e) {
+            assertEquals(e.getErrorCode(), TRANSACTION_CONFLICT.toErrorCode());
+        }
     }
 
     @Test

@@ -16,6 +16,7 @@ package com.facebook.presto.server.testing;
 import com.facebook.presto.connector.ConnectorManager;
 import com.facebook.presto.execution.QueryManager;
 import com.facebook.presto.memory.ClusterMemoryManager;
+import com.facebook.presto.memory.LocalMemoryManager;
 import com.facebook.presto.metadata.AllNodes;
 import com.facebook.presto.metadata.InternalNodeManager;
 import com.facebook.presto.metadata.Metadata;
@@ -78,6 +79,7 @@ public class TestingPrestoServer
     private final TestingHttpServer server;
     private final Metadata metadata;
     private final ClusterMemoryManager clusterMemoryManager;
+    private final LocalMemoryManager localMemoryManager;
     private final InternalNodeManager nodeManager;
     private final ServiceSelectorManager serviceSelectorManager;
     private final Announcer announcer;
@@ -104,6 +106,7 @@ public class TestingPrestoServer
                 .putAll(properties)
                 .put("coordinator", String.valueOf(coordinator))
                 .put("presto.version", "testversion")
+                .put("task.default-concurrency", "4")
                 .put("analyzer.experimental-syntax-enabled", "true");
 
         if (coordinator) {
@@ -160,6 +163,7 @@ public class TestingPrestoServer
         server = injector.getInstance(TestingHttpServer.class);
         metadata = injector.getInstance(Metadata.class);
         clusterMemoryManager = injector.getInstance(ClusterMemoryManager.class);
+        localMemoryManager = injector.getInstance(LocalMemoryManager.class);
         nodeManager = injector.getInstance(InternalNodeManager.class);
         serviceSelectorManager = injector.getInstance(ServiceSelectorManager.class);
         announcer = injector.getInstance(Announcer.class);
@@ -229,6 +233,11 @@ public class TestingPrestoServer
     public Metadata getMetadata()
     {
         return metadata;
+    }
+
+    public LocalMemoryManager getLocalMemoryManager()
+    {
+        return localMemoryManager;
     }
 
     public ClusterMemoryManager getClusterMemoryManager()

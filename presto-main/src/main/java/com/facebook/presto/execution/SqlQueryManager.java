@@ -49,6 +49,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static com.facebook.presto.execution.QueryState.RUNNING;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.spi.StandardErrorCode.QUERY_QUEUE_FULL;
 import static com.facebook.presto.spi.StandardErrorCode.SERVER_SHUTTING_DOWN;
@@ -148,6 +149,13 @@ public class SqlQueryManager
                 }
                 catch (Throwable e) {
                     log.warn(e, "Error removing expired queries");
+                }
+
+                try {
+                    pruneExpiredQueries();
+                }
+                catch (Throwable e) {
+                    log.warn(e, "Error pruning expired queries");
                 }
             }
         }, 1, 1, TimeUnit.SECONDS);
@@ -360,14 +368,34 @@ public class SqlQueryManager
     public void enforceMemoryLimits()
     {
         memoryManager.process(queries.values().stream()
-                .filter(query -> !query.getQueryInfo().getState().isDone())
+                .filter(query -> query.getQueryInfo().getState() == RUNNING)
                 .collect(toImmutableList()));
+    }
+
+    /**
+     * Prune extraneous info from old queries
+     */
+    private void pruneExpiredQueries()
+    {
+        if (expirationQueue.size() <= maxQueryHistory) {
+            return;
+        }
+
+        int count = 0;
+        // we're willing to keep full info for up to maxQueryHistory queries
+        for (QueryExecution query : expirationQueue) {
+            if (expirationQueue.size() - count <= maxQueryHistory) {
+                break;
+            }
+            query.pruneInfo();
+            count++;
+        }
     }
 
     /**
      * Remove completed queries after a waiting period
      */
-    public void removeExpiredQueries()
+    private void removeExpiredQueries()
     {
         DateTime timeHorizon = DateTime.now().minus(maxQueryAge.toMillis());
 

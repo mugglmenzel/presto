@@ -32,9 +32,9 @@ import com.facebook.presto.operator.GenericCursorProcessor;
 import com.facebook.presto.operator.GenericPageProcessor;
 import com.facebook.presto.operator.HashAggregationOperator.HashAggregationOperatorFactory;
 import com.facebook.presto.operator.HashBuilderOperator.HashBuilderOperatorFactory;
+import com.facebook.presto.operator.HashPartitionMaskOperator.HashPartitionMaskOperatorFactory;
 import com.facebook.presto.operator.HashSemiJoinOperator.HashSemiJoinOperatorFactory;
 import com.facebook.presto.operator.InMemoryExchange;
-import com.facebook.presto.operator.InMemoryExchangeSourceOperator.InMemoryExchangeSourceOperatorFactory;
 import com.facebook.presto.operator.LimitOperator.LimitOperatorFactory;
 import com.facebook.presto.operator.LookupJoinOperators;
 import com.facebook.presto.operator.LookupSourceSupplier;
@@ -43,6 +43,7 @@ import com.facebook.presto.operator.OperatorFactory;
 import com.facebook.presto.operator.OrderByOperator.OrderByOperatorFactory;
 import com.facebook.presto.operator.OutputFactory;
 import com.facebook.presto.operator.PageProcessor;
+import com.facebook.presto.operator.ParallelHashBuilder;
 import com.facebook.presto.operator.ProjectionFunction;
 import com.facebook.presto.operator.ProjectionFunctions;
 import com.facebook.presto.operator.RowNumberOperator;
@@ -77,8 +78,10 @@ import com.facebook.presto.split.PageSinkManager;
 import com.facebook.presto.split.PageSourceProvider;
 import com.facebook.presto.sql.gen.ExpressionCompiler;
 import com.facebook.presto.sql.parser.SqlParser;
+import com.facebook.presto.sql.planner.PlanFragment.PlanDistribution;
 import com.facebook.presto.sql.planner.optimizations.IndexJoinOptimizer;
 import com.facebook.presto.sql.planner.plan.AggregationNode;
+import com.facebook.presto.sql.planner.plan.AggregationNode.Step;
 import com.facebook.presto.sql.planner.plan.DistinctLimitNode;
 import com.facebook.presto.sql.planner.plan.FilterNode;
 import com.facebook.presto.sql.planner.plan.IndexJoinNode;
@@ -145,7 +148,13 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
+import static com.facebook.presto.SystemSessionProperties.getTaskAggregationConcurrency;
+import static com.facebook.presto.SystemSessionProperties.getTaskHashBuildConcurrency;
+import static com.facebook.presto.SystemSessionProperties.getTaskJoinConcurrency;
+import static com.facebook.presto.SystemSessionProperties.getTaskWriterCount;
 import static com.facebook.presto.operator.DistinctLimitOperator.DistinctLimitOperatorFactory;
+import static com.facebook.presto.operator.InMemoryExchangeSourceOperator.InMemoryExchangeSourceOperatorFactory.createBroadcastDistribution;
+import static com.facebook.presto.operator.InMemoryExchangeSourceOperator.InMemoryExchangeSourceOperatorFactory.createRandomDistribution;
 import static com.facebook.presto.operator.TableCommitOperator.TableCommitOperatorFactory;
 import static com.facebook.presto.operator.TableCommitOperator.TableCommitter;
 import static com.facebook.presto.operator.TableWriterOperator.TableWriterOperatorFactory;
@@ -154,10 +163,11 @@ import static com.facebook.presto.spi.StandardErrorCode.COMPILER_ERROR;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.sql.analyzer.ExpressionAnalyzer.getExpressionTypes;
 import static com.facebook.presto.sql.analyzer.ExpressionAnalyzer.getExpressionTypesFromInput;
+import static com.facebook.presto.sql.planner.plan.JoinNode.Type.FULL;
+import static com.facebook.presto.sql.planner.plan.JoinNode.Type.RIGHT;
 import static com.facebook.presto.sql.planner.plan.TableWriterNode.CreateHandle;
 import static com.facebook.presto.sql.planner.plan.TableWriterNode.InsertHandle;
 import static com.facebook.presto.sql.planner.plan.TableWriterNode.WriterTarget;
-import static com.facebook.presto.SystemSessionProperties.getTaskWriterCount;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
 import static com.google.common.base.Functions.forMap;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -185,6 +195,7 @@ public class LocalExecutionPlanner
     private final IndexJoinLookupStats indexJoinLookupStats;
     private final DataSize maxPartialAggregationMemorySize;
     private final int writerCount;
+    private final int defaultConcurrency;
 
     @Inject
     public LocalExecutionPlanner(
@@ -211,6 +222,7 @@ public class LocalExecutionPlanner
         this.maxIndexMemorySize = checkNotNull(taskManagerConfig, "taskManagerConfig is null").getMaxTaskIndexMemoryUsage();
         this.maxPartialAggregationMemorySize = taskManagerConfig.getMaxPartialAggregationMemoryUsage();
         this.writerCount = taskManagerConfig.getWriterCount();
+        this.defaultConcurrency = taskManagerConfig.getTaskDefaultConcurrency();
 
         interpreterEnabled = compilerConfig.isInterpreterEnabled();
     }
@@ -219,9 +231,10 @@ public class LocalExecutionPlanner
             PlanNode plan,
             List<Symbol> outputLayout,
             Map<Symbol, Type> types,
+            PlanDistribution distribution,
             OutputFactory outputOperatorFactory)
     {
-        LocalExecutionPlanContext context = new LocalExecutionPlanContext(session, types);
+        LocalExecutionPlanContext context = new LocalExecutionPlanContext(session, types, distribution != PlanDistribution.SOURCE);
 
         PhysicalOperation physicalOperation = enforceLayout(outputLayout, context, plan.accept(new Visitor(session), context));
 
@@ -266,6 +279,7 @@ public class LocalExecutionPlanner
     {
         private final Session session;
         private final Map<Symbol, Type> types;
+        private final boolean allowLocalParallel;
         private final List<DriverFactory> driverFactories;
         private final Optional<IndexSourceContext> indexSourceContext;
 
@@ -273,15 +287,21 @@ public class LocalExecutionPlanner
         private boolean inputDriver = true;
         private int driverInstanceCount = 1;
 
-        public LocalExecutionPlanContext(Session session, Map<Symbol, Type> types)
+        public LocalExecutionPlanContext(Session session, Map<Symbol, Type> types, boolean allowLocalParallel)
         {
-            this(session, types, new ArrayList<>(), Optional.empty());
+            this(session, types, allowLocalParallel, new ArrayList<>(), Optional.empty());
         }
 
-        private LocalExecutionPlanContext(Session session, Map<Symbol, Type> types, List<DriverFactory> driverFactories, Optional<IndexSourceContext> indexSourceContext)
+        private LocalExecutionPlanContext(
+                Session session,
+                Map<Symbol, Type> types,
+                boolean allowLocalParallel,
+                List<DriverFactory> driverFactories,
+                Optional<IndexSourceContext> indexSourceContext)
         {
             this.session = session;
             this.types = types;
+            this.allowLocalParallel = allowLocalParallel;
             this.driverFactories = driverFactories;
             this.indexSourceContext = indexSourceContext;
         }
@@ -329,12 +349,17 @@ public class LocalExecutionPlanner
         public LocalExecutionPlanContext createSubContext()
         {
             checkState(!indexSourceContext.isPresent(), "index build plan can not have sub-contexts");
-            return new LocalExecutionPlanContext(session, types, driverFactories, indexSourceContext);
+            return new LocalExecutionPlanContext(session, types, allowLocalParallel, driverFactories, indexSourceContext);
         }
 
         public LocalExecutionPlanContext createIndexSourceSubContext(IndexSourceContext indexSourceContext)
         {
-            return new LocalExecutionPlanContext(session, types, driverFactories, Optional.of(indexSourceContext));
+            return new LocalExecutionPlanContext(session, types, false, driverFactories, Optional.of(indexSourceContext));
+        }
+
+        public boolean isAllowLocalParallel()
+        {
+            return allowLocalParallel;
         }
 
         public int getDriverInstanceCount()
@@ -654,13 +679,61 @@ public class LocalExecutionPlanner
         @Override
         public PhysicalOperation visitAggregation(AggregationNode node, LocalExecutionPlanContext context)
         {
-            PhysicalOperation source = node.getSource().accept(this, context);
-
             if (node.getGroupBy().isEmpty()) {
+                PhysicalOperation source = node.getSource().accept(this, context);
                 return planGlobalAggregation(context.getNextOperatorId(), node, source);
             }
 
-            return planGroupByAggregation(node, source, context);
+            int aggregationConcurrency = getTaskAggregationConcurrency(session, defaultConcurrency);
+            if (node.getStep() == Step.PARTIAL || !context.isAllowLocalParallel() || context.getDriverInstanceCount() > 1 || aggregationConcurrency <= 1) {
+                PhysicalOperation source = node.getSource().accept(this, context);
+                return planGroupByAggregation(node, source, context, Optional.empty());
+            }
+
+            // create context for parallel operators
+            LocalExecutionPlanContext parallelContext = context.createSubContext();
+            parallelContext.setDriverInstanceCount(aggregationConcurrency);
+
+            // create context for source operators
+            LocalExecutionPlanContext sourceContext = parallelContext.createSubContext();
+            parallelContext.setInputDriver(false);
+
+            // plan aggregation source
+            PhysicalOperation source = node.getSource().accept(this, sourceContext);
+
+            // add a broadcast exchange which copies every page into all parallel workers
+            InMemoryExchange exchange = new InMemoryExchange(source.getTypes(), aggregationConcurrency);
+
+            // finish source operator
+            List<OperatorFactory> factories = ImmutableList.<OperatorFactory>builder()
+                    .addAll(source.getOperatorFactories())
+                    .add(exchange.createSinkFactory(sourceContext.getNextOperatorId()))
+                    .build();
+            exchange.noMoreSinkFactories();
+            parallelContext.addDriverFactory(new DriverFactory(sourceContext.isInputDriver(), false, factories));
+
+            // add broadcast exchange as first parallel operator
+            OperatorFactory exchangeSource = createBroadcastDistribution(parallelContext.getNextOperatorId(), exchange);
+            source = new PhysicalOperation(exchangeSource, source.getLayout());
+
+            // mask each parallel driver to only see one partition of groups
+            HashPartitionMaskOperatorFactory hashPartitionMask = new HashPartitionMaskOperatorFactory(
+                    parallelContext.getNextOperatorId(),
+                    aggregationConcurrency,
+                    exchangeSource.getTypes(),
+                    getChannelsForSymbols(ImmutableList.copyOf(node.getMasks().values()), source.getLayout()),
+                    getChannelsForSymbols(ImmutableList.copyOf(node.getGroupBy()), source.getLayout()),
+                    node.getHashSymbol().map(channelGetter(source)));
+            int defaultMaskChannel = hashPartitionMask.getDefaultMaskChannel();
+            source = new PhysicalOperation(hashPartitionMask, source.getLayout(), source);
+
+            // plan aggregation
+            PhysicalOperation operation = planGroupByAggregation(node, source, parallelContext, Optional.of(defaultMaskChannel));
+
+            // merge parallel tasks back into a single stream
+            operation = addInMemoryExchange(context, operation, parallelContext);
+
+            return operation;
         }
 
         @Override
@@ -1206,7 +1279,19 @@ public class LocalExecutionPlanner
                 LocalExecutionPlanContext context)
         {
             // Plan probe and introduce a projection to put all fields from the probe side into a single channel if necessary
-            PhysicalOperation probeSource = probeNode.accept(this, context);
+            PhysicalOperation probeSource;
+            LocalExecutionPlanContext parallelParentContext = null;
+            int joinConcurrency = getTaskJoinConcurrency(session, defaultConcurrency);
+            // currently we can not run joins with an outer build in parallel
+            if (!isBuildOuter(node) && context.isAllowLocalParallel() && context.getDriverInstanceCount() == 1 && joinConcurrency > 1) {
+                parallelParentContext = context;
+                context = context.createSubContext();
+                probeSource = createInMemoryExchange(probeNode, context);
+                context.setDriverInstanceCount(joinConcurrency);
+            }
+            else {
+                probeSource = probeNode.accept(this, context);
+            }
             List<Integer> probeChannels = ImmutableList.copyOf(getChannelsForSymbols(probeSymbols, probeSource.getLayout()));
             Optional<Integer> probeHashChannel = probeHashSymbol.map(channelGetter(probeSource));
 
@@ -1216,21 +1301,53 @@ public class LocalExecutionPlanner
             List<Integer> buildChannels = ImmutableList.copyOf(getChannelsForSymbols(buildSymbols, buildSource.getLayout()));
             Optional<Integer> buildHashChannel = buildHashSymbol.map(channelGetter(buildSource));
 
-            HashBuilderOperatorFactory hashBuilderOperatorFactory = new HashBuilderOperatorFactory(
-                    buildContext.getNextOperatorId(),
-                    buildSource.getTypes(),
-                    buildChannels,
-                    buildHashChannel,
-                    10_000);
-            LookupSourceSupplier lookupSourceSupplier = hashBuilderOperatorFactory.getLookupSourceSupplier();
-            DriverFactory buildDriverFactory = new DriverFactory(
-                    buildContext.isInputDriver(),
-                    false,
-                    ImmutableList.<OperatorFactory>builder()
-                            .addAll(buildSource.getOperatorFactories())
-                            .add(hashBuilderOperatorFactory)
-                            .build());
-            context.addDriverFactory(buildDriverFactory);
+            LookupSourceSupplier lookupSourceSupplier;
+            int hashBuildConcurrency = getTaskHashBuildConcurrency(session, defaultConcurrency);
+            if (isBuildOuter(node) || hashBuildConcurrency <= 1) {
+                HashBuilderOperatorFactory hashBuilderOperatorFactory = new HashBuilderOperatorFactory(
+                        buildContext.getNextOperatorId(),
+                        buildSource.getTypes(),
+                        buildChannels,
+                        buildHashChannel,
+                        10_000);
+
+                context.addDriverFactory(new DriverFactory(
+                        buildContext.isInputDriver(),
+                        false,
+                        ImmutableList.<OperatorFactory>builder()
+                                .addAll(buildSource.getOperatorFactories())
+                                .add(hashBuilderOperatorFactory)
+                                .build()));
+
+                lookupSourceSupplier = hashBuilderOperatorFactory.getLookupSourceSupplier();
+            }
+            else {
+                // round partitionCount down to the last power of 2
+                int parallelBuildCount = Integer.highestOneBit(hashBuildConcurrency);
+
+                ParallelHashBuilder parallelHashBuilder = new ParallelHashBuilder(
+                        buildSource.getTypes(),
+                        buildChannels,
+                        buildHashChannel,
+                        10_000,
+                        parallelBuildCount);
+
+                context.addDriverFactory(new DriverFactory(
+                        buildContext.isInputDriver(),
+                        false,
+                        ImmutableList.<OperatorFactory>builder()
+                                .addAll(buildSource.getOperatorFactories())
+                                .add(parallelHashBuilder.getCollectOperatorFactory(buildContext.getNextOperatorId()))
+                                .build()));
+
+                context.addDriverFactory(new DriverFactory(
+                        false,
+                        false,
+                        ImmutableList.of(parallelHashBuilder.getBuildOperatorFactory()),
+                        parallelBuildCount));
+
+                lookupSourceSupplier = parallelHashBuilder.getLookupSourceSupplier();
+            }
 
             ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
             outputMappings.putAll(probeSource.getLayout());
@@ -1244,7 +1361,19 @@ public class LocalExecutionPlanner
             }
 
             OperatorFactory operator = createJoinOperator(node.getType(), lookupSourceSupplier, probeSource.getTypes(), probeChannels, probeHashChannel, context);
-            return new PhysicalOperation(operator, outputMappings.build(), probeSource);
+            PhysicalOperation operation = new PhysicalOperation(operator, outputMappings.build(), probeSource);
+
+            // merge parallel joiners back into a single stream
+            if (parallelParentContext != null) {
+                operation = addInMemoryExchange(parallelParentContext, operation, context);
+            }
+
+            return operation;
+        }
+
+        private boolean isBuildOuter(JoinNode node)
+        {
+            return node.getType() == RIGHT || node.getType() == FULL;
         }
 
         private OperatorFactory createJoinOperator(
@@ -1273,7 +1402,18 @@ public class LocalExecutionPlanner
         public PhysicalOperation visitSemiJoin(SemiJoinNode node, LocalExecutionPlanContext context)
         {
             // introduce a projection to put all fields from the probe side into a single channel if necessary
-            PhysicalOperation probeSource = node.getSource().accept(this, context);
+            PhysicalOperation probeSource;
+            LocalExecutionPlanContext parallelParentContext = null;
+            int joinConcurrency = getTaskJoinConcurrency(session, defaultConcurrency);
+            if (context.isAllowLocalParallel() && context.getDriverInstanceCount() == 1 && joinConcurrency > 1) {
+                parallelParentContext = context;
+                context = context.createSubContext();
+                probeSource = createInMemoryExchange(node.getSource(), context);
+                context.setDriverInstanceCount(joinConcurrency);
+            }
+            else {
+                probeSource = node.getSource().accept(this, context);
+            }
 
             // do the same on the build side
             LocalExecutionPlanContext buildContext = context.createSubContext();
@@ -1303,7 +1443,14 @@ public class LocalExecutionPlanner
                     .build();
 
             HashSemiJoinOperatorFactory operator = new HashSemiJoinOperatorFactory(context.getNextOperatorId(), setProvider, probeSource.getTypes(), probeChannel, probeHashChannel);
-            return new PhysicalOperation(operator, outputMappings, probeSource);
+            PhysicalOperation operation = new PhysicalOperation(operator, outputMappings, probeSource);
+
+            // merge parallel joiners back into a single stream
+            if (parallelParentContext != null) {
+                operation = addInMemoryExchange(parallelParentContext, operation, context);
+            }
+
+            return operation;
         }
 
         @Override
@@ -1336,16 +1483,21 @@ public class LocalExecutionPlanner
             LocalExecutionPlanContext subContext = context.createSubContext();
             PhysicalOperation source = node.accept(this, subContext);
 
-            InMemoryExchange exchange = new InMemoryExchange(getSourceOperatorTypes(node, context.getTypes()));
+            return addInMemoryExchange(context, source, subContext);
+        }
+
+        private PhysicalOperation addInMemoryExchange(LocalExecutionPlanContext context, PhysicalOperation source, LocalExecutionPlanContext sourceContext)
+        {
+            InMemoryExchange exchange = new InMemoryExchange(source.getTypes());
 
             // create exchange sink
             List<OperatorFactory> factories = ImmutableList.<OperatorFactory>builder()
                     .addAll(source.getOperatorFactories())
-                    .add(exchange.createSinkFactory(subContext.getNextOperatorId()))
+                    .add(exchange.createSinkFactory(sourceContext.getNextOperatorId()))
                     .build();
 
             // add sub-context to current context
-            context.addDriverFactory(new DriverFactory(subContext.isInputDriver(), false, factories));
+            context.addDriverFactory(new DriverFactory(sourceContext.isInputDriver(), false, factories, sourceContext.getDriverInstanceCount()));
 
             exchange.noMoreSinkFactories();
 
@@ -1353,8 +1505,8 @@ public class LocalExecutionPlanner
             context.setInputDriver(false);
 
             // add exchange source as first operator in the current context
-            OperatorFactory factory = new InMemoryExchangeSourceOperatorFactory(context.getNextOperatorId(), exchange);
-            return new PhysicalOperation(factory, makeLayout(node));
+            OperatorFactory factory = createRandomDistribution(context.getNextOperatorId(), exchange);
+            return new PhysicalOperation(factory, source.getLayout());
         }
 
         @Override
@@ -1407,7 +1559,7 @@ public class LocalExecutionPlanner
             // the main driver is not an input... the union sources are the input for the plan
             context.setInputDriver(false);
 
-            return new PhysicalOperation(new InMemoryExchangeSourceOperatorFactory(context.getNextOperatorId(), inMemoryExchange), makeLayout(node));
+            return new PhysicalOperation(createRandomDistribution(context.getNextOperatorId(), inMemoryExchange), makeLayout(node));
         }
 
         @Override
@@ -1428,7 +1580,14 @@ public class LocalExecutionPlanner
                     .collect(toImmutableList());
         }
 
-        private AccumulatorFactory buildAccumulatorFactory(PhysicalOperation source, Signature function, FunctionCall call, @Nullable Symbol mask, Optional<Symbol> sampleWeight, double confidence)
+        private AccumulatorFactory buildAccumulatorFactory(
+                PhysicalOperation source,
+                Signature function,
+                FunctionCall call,
+                @Nullable Symbol mask,
+                Optional<Integer> defaultMaskChannel,
+                Optional<Symbol> sampleWeight,
+                double confidence)
         {
             List<Integer> arguments = new ArrayList<>();
             for (Expression argument : call.getArguments()) {
@@ -1436,7 +1595,7 @@ public class LocalExecutionPlanner
                 arguments.add(source.getLayout().get(argumentSymbol));
             }
 
-            Optional<Integer> maskChannel = Optional.empty();
+            Optional<Integer> maskChannel = defaultMaskChannel;
 
             if (mask != null) {
                 maskChannel = Optional.of(source.getLayout().get(mask));
@@ -1458,7 +1617,13 @@ public class LocalExecutionPlanner
             for (Map.Entry<Symbol, FunctionCall> entry : node.getAggregations().entrySet()) {
                 Symbol symbol = entry.getKey();
 
-                accumulatorFactories.add(buildAccumulatorFactory(source, node.getFunctions().get(symbol), entry.getValue(), node.getMasks().get(entry.getKey()), node.getSampleWeight(), node.getConfidence()));
+                accumulatorFactories.add(buildAccumulatorFactory(source,
+                        node.getFunctions().get(symbol),
+                        entry.getValue(),
+                        node.getMasks().get(entry.getKey()),
+                        Optional.<Integer>empty(),
+                        node.getSampleWeight(),
+                        node.getConfidence()));
                 outputMappings.put(symbol, outputChannel); // one aggregation per channel
                 outputChannel++;
             }
@@ -1467,7 +1632,7 @@ public class LocalExecutionPlanner
             return new PhysicalOperation(operatorFactory, outputMappings.build(), source);
         }
 
-        private PhysicalOperation planGroupByAggregation(AggregationNode node, PhysicalOperation source, LocalExecutionPlanContext context)
+        private PhysicalOperation planGroupByAggregation(AggregationNode node, PhysicalOperation source, LocalExecutionPlanContext context, Optional<Integer> defaultMaskChannel)
         {
             List<Symbol> groupBySymbols = node.getGroupBy();
 
@@ -1476,7 +1641,7 @@ public class LocalExecutionPlanner
             for (Map.Entry<Symbol, FunctionCall> entry : node.getAggregations().entrySet()) {
                 Symbol symbol = entry.getKey();
 
-                accumulatorFactories.add(buildAccumulatorFactory(source, node.getFunctions().get(symbol), entry.getValue(), node.getMasks().get(entry.getKey()), node.getSampleWeight(), node.getConfidence()));
+                accumulatorFactories.add(buildAccumulatorFactory(source, node.getFunctions().get(symbol), entry.getValue(), node.getMasks().get(entry.getKey()), defaultMaskChannel, node.getSampleWeight(), node.getConfidence()));
                 aggregationOutputSymbols.add(symbol);
             }
 
@@ -1512,6 +1677,7 @@ public class LocalExecutionPlanner
                     groupByChannels,
                     node.getStep(),
                     accumulatorFactories,
+                    defaultMaskChannel,
                     hashChannel,
                     10_000,
                     maxPartialAggregationMemorySize);
