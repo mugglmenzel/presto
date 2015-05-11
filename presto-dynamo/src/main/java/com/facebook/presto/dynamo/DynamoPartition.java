@@ -15,7 +15,7 @@ package com.facebook.presto.dynamo;
 
 import java.nio.ByteBuffer;
 
-import com.facebook.presto.spi.ConnectorColumnHandle;
+import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPartition;
 import com.facebook.presto.spi.TupleDomain;
 
@@ -27,7 +27,7 @@ public class DynamoPartition
 
     private final String partitionId;
     private final byte[] key;
-    private final TupleDomain<ConnectorColumnHandle> tupleDomain;
+    private final TupleDomain<ColumnHandle> tupleDomain;
     private final boolean indexedColumnPredicatePushdown;
 
     private DynamoPartition()
@@ -38,7 +38,7 @@ public class DynamoPartition
         indexedColumnPredicatePushdown = false;
     }
 
-    public DynamoPartition(byte[] key, String partitionId, TupleDomain<ConnectorColumnHandle> tupleDomain, boolean indexedColumnPredicatePushdown)
+    public DynamoPartition(byte[] key, String partitionId, TupleDomain<ColumnHandle> tupleDomain, boolean indexedColumnPredicatePushdown)
     {
         this.key = key;
         this.partitionId = partitionId;
@@ -57,7 +57,7 @@ public class DynamoPartition
     }
 
     @Override
-    public TupleDomain<ConnectorColumnHandle> getTupleDomain()
+    public TupleDomain<ColumnHandle> getTupleDomain()
     {
         return tupleDomain;
     }

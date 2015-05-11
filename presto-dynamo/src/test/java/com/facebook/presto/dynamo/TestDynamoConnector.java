@@ -53,7 +53,7 @@ import com.facebook.presto.dynamo.aws.DynamoColumnAwsMetadata;
 import com.facebook.presto.dynamo.aws.DynamoTableAwsMetadata;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.Connector;
-import com.facebook.presto.spi.ConnectorColumnHandle;
+import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorHandleResolver;
 import com.facebook.presto.spi.ConnectorMetadata;
 import com.facebook.presto.spi.ConnectorPartitionResult;
@@ -169,12 +169,12 @@ public class TestDynamoConnector
         ConnectorTableHandle tableHandle = getTableHandle(table);
         ConnectorTableMetadata tableMetadata = metadata
                 .getTableMetadata(tableHandle);
-        List<ConnectorColumnHandle> columnHandles = ImmutableList
+        List<ColumnHandle> columnHandles = ImmutableList
                 .copyOf(metadata.getColumnHandles(tableHandle).values());
         Map<String, Integer> columnIndex = indexColumns(columnHandles);
 
         ConnectorPartitionResult partitionResult = splitManager.getPartitions(
-                tableHandle, TupleDomain.<ConnectorColumnHandle>all());
+                tableHandle, TupleDomain.<ColumnHandle>all());
         List<ConnectorSplit> splits = getAllSplits(splitManager
                 .getPartitionSplits(tableHandle,
                         partitionResult.getPartitions()));
@@ -263,11 +263,11 @@ public class TestDynamoConnector
     }
 
     private static ImmutableMap<String, Integer> indexColumns(
-            List<ConnectorColumnHandle> columnHandles)
+            List<ColumnHandle> columnHandles)
     {
         ImmutableMap.Builder<String, Integer> index = ImmutableMap.builder();
         int i = 0;
-        for (ConnectorColumnHandle columnHandle : columnHandles) {
+        for (ColumnHandle columnHandle : columnHandles) {
             String name = checkType(columnHandle, DynamoColumnHandle.class,
                     "columnHandle").getName();
             index.put(name, i);

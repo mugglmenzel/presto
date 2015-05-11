@@ -23,8 +23,8 @@ import java.util.Objects;
 
 import javax.annotation.Nullable;
 
+import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ColumnMetadata;
-import com.facebook.presto.spi.ConnectorColumnHandle;
 import com.facebook.presto.spi.type.Type;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -33,7 +33,7 @@ import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Predicate;
 
 public class DynamoColumnHandle
-        implements ConnectorColumnHandle
+        implements ColumnHandle
 {
     public static final String SAMPLE_WEIGHT_COLUMN_NAME = "presto_sample_weight";
 
@@ -200,24 +200,24 @@ public class DynamoColumnHandle
         return helper.toString();
     }
 
-    public static Function<ConnectorColumnHandle, DynamoColumnHandle> dynamoColumnHandle()
+    public static Function<ColumnHandle, DynamoColumnHandle> dynamoColumnHandle()
     {
-        return new Function<ConnectorColumnHandle, DynamoColumnHandle>()
+        return new Function<ColumnHandle, DynamoColumnHandle>()
         {
             @Override
-            public DynamoColumnHandle apply(ConnectorColumnHandle columnHandle)
+            public DynamoColumnHandle apply(ColumnHandle columnHandle)
             {
                 return checkType(columnHandle, DynamoColumnHandle.class, "columnHandle");
             }
         };
     }
 
-    public static Function<ConnectorColumnHandle, ColumnMetadata> columnMetadataGetter()
+    public static Function<ColumnHandle, ColumnMetadata> columnMetadataGetter()
     {
-        return new Function<ConnectorColumnHandle, ColumnMetadata>()
+        return new Function<ColumnHandle, ColumnMetadata>()
         {
             @Override
-            public ColumnMetadata apply(ConnectorColumnHandle columnHandle)
+            public ColumnMetadata apply(ColumnHandle columnHandle)
             {
                 checkNotNull(columnHandle, "columnHandle is null");
                 checkArgument(columnHandle instanceof DynamoColumnHandle,

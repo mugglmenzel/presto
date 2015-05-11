@@ -30,7 +30,7 @@ import javax.inject.Inject;
 
 import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
 import com.facebook.presto.dynamo.util.HostAddressFactory;
-import com.facebook.presto.spi.ConnectorColumnHandle;
+import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPartition;
 import com.facebook.presto.spi.ConnectorPartitionResult;
 import com.facebook.presto.spi.ConnectorSplit;
@@ -77,7 +77,7 @@ public class DynamoSplitManager
     }
 
     @Override
-    public ConnectorPartitionResult getPartitions(ConnectorTableHandle tableHandle, TupleDomain<ConnectorColumnHandle> tupleDomain)
+    public ConnectorPartitionResult getPartitions(ConnectorTableHandle tableHandle, TupleDomain<ColumnHandle> tupleDomain)
     {
         DynamoTableHandle dynamoTableHandle = checkType(tableHandle, DynamoTableHandle.class, "tableHandle");
         checkNotNull(tupleDomain, "tupleDomain is null");
@@ -95,27 +95,27 @@ public class DynamoSplitManager
                 .toList();
 
         // All partition key domains will be fully evaluated, so we don't need to include those
-        TupleDomain<ConnectorColumnHandle> remainingTupleDomain = TupleDomain.none();
+        TupleDomain<ColumnHandle> remainingTupleDomain = TupleDomain.none();
         if (!tupleDomain.isNone()) {
             if (partitions.size() == 1 && ((DynamoPartition) partitions.get(0)).isUnpartitioned()) {
                 remainingTupleDomain = tupleDomain;
             }
             else {
                 @SuppressWarnings({"rawtypes", "unchecked"})
-                List<ConnectorColumnHandle> partitionColumns = (List) partitionKeys;
+                List<ColumnHandle> partitionColumns = (List) partitionKeys;
                 remainingTupleDomain = TupleDomain.withColumnDomains(Maps.filterKeys(tupleDomain.getDomains(), not(in(partitionColumns))));
             }
         }
 
         // push down indexed column fixed value predicates only for unpartitioned partition which uses token range query
         if (partitions.size() == 1 && ((DynamoPartition) partitions.get(0)).isUnpartitioned()) {
-            Map<ConnectorColumnHandle, Domain> domains = tupleDomain.getDomains();
-            List<ConnectorColumnHandle> indexedColumns = Lists.newArrayList();
+            Map<ColumnHandle, Domain> domains = tupleDomain.getDomains();
+            List<ColumnHandle> indexedColumns = Lists.newArrayList();
             // TODO compose partitionId by using indexed column
             StringBuilder sb = new StringBuilder();
             if (sb.length() > 0) {
                 DynamoPartition partition = (DynamoPartition) partitions.get(0);
-                TupleDomain<ConnectorColumnHandle> filterIndexedColumn = TupleDomain.withColumnDomains(Maps.filterKeys(remainingTupleDomain.getDomains(), not(in(indexedColumns))));
+                TupleDomain<ColumnHandle> filterIndexedColumn = TupleDomain.withColumnDomains(Maps.filterKeys(remainingTupleDomain.getDomains(), not(in(indexedColumns))));
                 partitions = Lists.newArrayList();
                 partitions.add(new DynamoPartition(partition.getKey(), sb.toString(), filterIndexedColumn, true));
                 return new ConnectorPartitionResult(partitions, filterIndexedColumn);
@@ -124,7 +124,7 @@ public class DynamoSplitManager
         return new ConnectorPartitionResult(partitions, remainingTupleDomain);
     }
 
-    private List<DynamoPartition> getDynamoPartitions(final DynamoTable table, TupleDomain<ConnectorColumnHandle> tupleDomain)
+    private List<DynamoPartition> getDynamoPartitions(final DynamoTable table, TupleDomain<ColumnHandle> tupleDomain)
     {
         if (tupleDomain.isNone()) {
             return ImmutableList.of();
@@ -196,7 +196,7 @@ public class DynamoSplitManager
                 .toString();
     }
 
-    public static Predicate<DynamoPartition> partitionMatches(final TupleDomain<ConnectorColumnHandle> tupleDomain)
+    public static Predicate<DynamoPartition> partitionMatches(final TupleDomain<ColumnHandle> tupleDomain)
     {
         return new Predicate<DynamoPartition>()
         {

@@ -35,7 +35,7 @@ import javax.inject.Inject;
 import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
 import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
 import com.facebook.presto.spi.ColumnMetadata;
-import com.facebook.presto.spi.ConnectorColumnHandle;
+import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorInsertTableHandle;
 import com.facebook.presto.spi.ConnectorMetadata;
 import com.facebook.presto.spi.ConnectorOutputTableHandle;
@@ -169,7 +169,7 @@ public class DynamoMetadata implements ConnectorMetadata
     }
 
     @Override
-    public ConnectorColumnHandle getSampleWeightColumnHandle(
+    public ColumnHandle getSampleWeightColumnHandle(
             ConnectorTableHandle tableHandle)
     {
         return getColumnHandles(tableHandle, true).get(
@@ -177,13 +177,13 @@ public class DynamoMetadata implements ConnectorMetadata
     }
 
     @Override
-    public Map<String, ConnectorColumnHandle> getColumnHandles(
+    public Map<String, ColumnHandle> getColumnHandles(
             ConnectorTableHandle tableHandle)
     {
         return getColumnHandles(tableHandle, false);
     }
 
-    private Map<String, ConnectorColumnHandle> getColumnHandles(
+    private Map<String, ColumnHandle> getColumnHandles(
             ConnectorTableHandle tableHandle, boolean includeSampleWeight)
     {
         DynamoTableHandle dynamoTableHandle = (DynamoTableHandle) tableHandle;
@@ -191,7 +191,7 @@ public class DynamoMetadata implements ConnectorMetadata
         DynamoTable table = DynamoTable.getTable(metadata, connectorId,
                 dynamoTableHandle.getSchemaName(),
                 dynamoTableHandle.getTableName());
-        ImmutableMap.Builder<String, ConnectorColumnHandle> columnHandles = ImmutableMap
+        ImmutableMap.Builder<String, ColumnHandle> columnHandles = ImmutableMap
                 .builder();
         for (DynamoColumnHandle columnHandle : table.getColumns()) {
             if (includeSampleWeight
@@ -234,7 +234,7 @@ public class DynamoMetadata implements ConnectorMetadata
 
     @Override
     public ColumnMetadata getColumnMetadata(ConnectorTableHandle tableHandle,
-            ConnectorColumnHandle columnHandle)
+            ColumnHandle columnHandle)
     {
         checkType(tableHandle, DynamoTableHandle.class, "tableHandle");
         return checkType(columnHandle, DynamoColumnHandle.class, "columnHandle")

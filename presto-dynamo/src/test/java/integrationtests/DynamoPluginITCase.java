@@ -31,7 +31,7 @@ import com.facebook.presto.dynamo.DynamoConnectorFactory;
 import com.facebook.presto.dynamo.DynamoPlugin;
 import com.facebook.presto.dynamo.DynamoTestingUtils;
 import com.facebook.presto.spi.Connector;
-import com.facebook.presto.spi.ConnectorColumnHandle;
+import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorFactory;
 import com.facebook.presto.spi.ConnectorMetadata;
 import com.facebook.presto.spi.ConnectorPartitionResult;
@@ -104,13 +104,13 @@ public class DynamoPluginITCase
                 .getTableHandle(session,
                         new SchemaTableName("us_west_2", "Users"));
 
-        List<ConnectorColumnHandle> columnHandles = ImmutableList
+        List<ColumnHandle> columnHandles = ImmutableList
                 .copyOf(connectorMetadata.getColumnHandles(tableHandle)
                         .values());
 
         ConnectorSplitManager splitManager = connector.getSplitManager();
         ConnectorPartitionResult partitionResult = splitManager.getPartitions(
-                tableHandle, TupleDomain.<ConnectorColumnHandle>all());
+                tableHandle, TupleDomain.<ColumnHandle>all());
         ConnectorSplitSource splitSource = splitManager.getPartitionSplits(
                 tableHandle, partitionResult.getPartitions());
         List<ConnectorSplit> splits = new ArrayList<ConnectorSplit>();

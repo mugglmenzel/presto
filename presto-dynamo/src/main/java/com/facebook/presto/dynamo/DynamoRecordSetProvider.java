@@ -26,7 +26,7 @@ import javax.inject.Inject;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.facebook.presto.dynamo.aws.DynamoAwsClientProvider;
 import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
-import com.facebook.presto.spi.ConnectorColumnHandle;
+import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorRecordSetProvider;
 import com.facebook.presto.spi.ConnectorSplit;
 import com.facebook.presto.spi.RecordSet;
@@ -52,7 +52,7 @@ public class DynamoRecordSetProvider
     }
 
     @Override
-    public RecordSet getRecordSet(ConnectorSplit split, List<? extends ConnectorColumnHandle> columns)
+    public RecordSet getRecordSet(ConnectorSplit split, List<? extends ColumnHandle> columns)
     {
         DynamoSplit dynamoSplit = checkType(split, DynamoSplit.class, "split");
 
