@@ -15,7 +15,7 @@ package com.facebook.presto.dynamo;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
-import static io.airlift.configuration.ConfigurationModule.bindConfig;
+import static io.airlift.configuration.ConfigBinder.configBinder;
 import static io.airlift.json.JsonCodecBinder.jsonCodecBinder;
 import static java.util.concurrent.Executors.newFixedThreadPool;
 import static org.weakref.jmx.ObjectNames.generatedNameOf;
@@ -50,7 +50,7 @@ public class DynamoClientModule
     @Override
     public void configure(Binder binder)
     {
-        bindConfig(binder).to(DynamoClientConfig.class);
+        configBinder(binder).bindConfig(DynamoClientConfig.class);
 
         binder.bind(DynamoAwsClientProvider.class).to(DefaultDynamoAwsClientProvider.class).in(Scopes.SINGLETON);
 
