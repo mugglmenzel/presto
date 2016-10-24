@@ -14,6 +14,7 @@
 package com.facebook.presto.sql.planner.plan;
 
 import com.facebook.presto.sql.planner.Symbol;
+import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.Join;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -24,7 +25,8 @@ import javax.annotation.concurrent.Immutable;
 import java.util.List;
 import java.util.Optional;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
+import static java.util.Objects.requireNonNull;
 
 @Immutable
 public class JoinNode
@@ -34,6 +36,7 @@ public class JoinNode
     private final PlanNode left;
     private final PlanNode right;
     private final List<EquiJoinClause> criteria;
+    private final Optional<Expression> filter;
     private final Optional<Symbol> leftHashSymbol;
     private final Optional<Symbol> rightHashSymbol;
 
@@ -43,23 +46,28 @@ public class JoinNode
             @JsonProperty("left") PlanNode left,
             @JsonProperty("right") PlanNode right,
             @JsonProperty("criteria") List<EquiJoinClause> criteria,
+            @JsonProperty("filter") Optional<Expression> filter,
             @JsonProperty("leftHashSymbol") Optional<Symbol> leftHashSymbol,
             @JsonProperty("rightHashSymbol") Optional<Symbol> rightHashSymbol)
     {
         super(id);
-        checkNotNull(type, "type is null");
-        checkNotNull(left, "left is null");
-        checkNotNull(right, "right is null");
-        checkNotNull(criteria, "criteria is null");
-        checkNotNull(leftHashSymbol, "leftHashSymbol is null");
-        checkNotNull(rightHashSymbol, "rightHashSymbol is null");
+        requireNonNull(type, "type is null");
+        requireNonNull(left, "left is null");
+        requireNonNull(right, "right is null");
+        requireNonNull(criteria, "criteria is null");
+        requireNonNull(filter, "filter is null");
+        requireNonNull(leftHashSymbol, "leftHashSymbol is null");
+        requireNonNull(rightHashSymbol, "rightHashSymbol is null");
 
         this.type = type;
         this.left = left;
         this.right = right;
         this.criteria = ImmutableList.copyOf(criteria);
+        this.filter = filter;
         this.leftHashSymbol = leftHashSymbol;
         this.rightHashSymbol = rightHashSymbol;
+
+        checkState(leftHashSymbol.isPresent() == rightHashSymbol.isPresent(), "Either none or both hash symbols should be provided");
     }
 
     public enum Type
@@ -67,7 +75,6 @@ public class JoinNode
         INNER("InnerJoin"),
         LEFT("LeftJoin"),
         RIGHT("RightJoin"),
-        CROSS("CrossJoin"),
         FULL("FullJoin");
 
         private final String joinLabel;
@@ -86,6 +93,8 @@ public class JoinNode
         {
             // Omit SEMI join types because they must be inferred by the planner and not part of the SQL parse tree
             switch (joinType) {
+                case CROSS:
+                case IMPLICIT:
                 case INNER:
                     return Type.INNER;
                 case LEFT:
@@ -94,9 +103,6 @@ public class JoinNode
                     return Type.RIGHT;
                 case FULL:
                     return Type.FULL;
-                case CROSS:
-                case IMPLICIT:
-                    return Type.CROSS;
                 default:
                     throw new UnsupportedOperationException("Unsupported join type: " + joinType);
             }
@@ -125,6 +131,12 @@ public class JoinNode
     public List<EquiJoinClause> getCriteria()
     {
         return criteria;
+    }
+
+    @JsonProperty("filter")
+    public Optional<Expression> getFilter()
+    {
+        return filter;
     }
 
     @JsonProperty("leftHashSymbol")
@@ -169,8 +181,8 @@ public class JoinNode
         @JsonCreator
         public EquiJoinClause(@JsonProperty("left") Symbol left, @JsonProperty("right") Symbol right)
         {
-            this.left = checkNotNull(left, "left is null");
-            this.right = checkNotNull(right, "right is null");
+            this.left = requireNonNull(left, "left is null");
+            this.right = requireNonNull(right, "right is null");
         }
 
         @JsonProperty("left")

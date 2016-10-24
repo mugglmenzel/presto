@@ -13,7 +13,7 @@ String Functions
 .. note::
 
     These functions assume that the input strings contain valid UTF-8 encoded
-    Unicode code points.  There are no explicit checks for valid UTF-8, and
+    Unicode code points.  There are no explicit checks for valid UTF-8 and
     the functions may return incorrect results on invalid UTF-8.
     Invalid UTF-8 data can be corrected with :func:`from_utf8`.
 
@@ -32,9 +32,9 @@ String Functions
 
     Returns the Unicode code point ``n`` as a single character string.
 
-.. function:: concat(string1, string2) -> varchar
+.. function:: concat(string1, ..., stringN) -> varchar
 
-    Returns the concatenation of ``string1`` and ``string2``.
+    Returns the concatenation of ``string1``, ``string2``, ``...``, ``stringN``.
     This function provides the same functionality as the
     SQL-standard concatenation operator (``||``).
 
@@ -46,11 +46,12 @@ String Functions
 
     Converts ``string`` to lowercase.
 
-.. note::
+.. function:: lpad(string, size, padstring) -> varchar
 
-    This method does not perform perform locale-sensitive, context-sensitive,
-    or one-to-many mappings required for some languages.  Specifically, this
-    will return incorrect results for Lithuanian, Turkish and Azeri.
+    Left pads ``string`` to ``size`` characters with ``padstring``.
+    If ``size`` is less than the length of ``string``, the result is
+    truncated to ``size`` characters. ``size`` must not be negative
+    and ``padstring`` must be non-empty.
 
 .. function:: ltrim(string) -> varchar
 
@@ -67,6 +68,13 @@ String Functions
 .. function:: reverse(string) -> varchar
 
     Returns ``string`` with the characters in reverse order.
+
+.. function:: rpad(string, size, padstring) -> varchar
+
+    Right pads ``string`` to ``size`` characters with ``padstring``.
+    If ``size`` is less than the length of ``string``, the result is
+    truncated to ``size`` characters. ``size`` must not be negative
+    and ``padstring`` must be non-empty.
 
 .. function:: rtrim(string) -> varchar
 
@@ -88,7 +96,18 @@ String Functions
     Field indexes start with ``1``. If the index is larger than than
     the number of fields, then null is returned.
 
+.. function:: split_to_map(string, entryDelimiter, keyValueDelimiter) -> map<varchar, varchar>
+
+    Splits ``string`` by ``entryDelimiter`` and ``keyValueDelimiter`` and returns a map.
+    ``entryDelimiter`` splits ``string`` into key-value pairs. ``keyValueDelimiter`` splits
+    each pair into key and value.
+
 .. function:: strpos(string, substring) -> bigint
+
+    Returns the starting position of the first instance of ``substring`` in
+    ``string``. Positions start with ``1``. If not found, ``0`` is returned.
+
+.. function:: position(substring IN string) -> bigint
 
     Returns the starting position of the first instance of ``substring`` in
     ``string``. Positions start with ``1``. If not found, ``0`` is returned.
@@ -112,6 +131,32 @@ String Functions
 .. function:: upper(string) -> varchar
 
     Converts ``string`` to uppercase.
+
+Unicode Functions
+-----------------
+
+.. function:: normalize(string) -> varchar
+
+    Transforms ``string`` with NFC normalization form.
+
+.. function:: normalize(string, form) -> varchar
+
+    Transforms ``string`` with the specified normalization form.
+    ``form`` must be be one of the following keywords:
+
+    ======== ===========
+    Form     Description
+    ======== ===========
+    ``NFD``  Canonical Decomposition
+    ``NFC``  Canonical Decomposition, followed by Canonical Composition
+    ``NFKD`` Compatibility Decomposition
+    ``NFKC`` Compatibility Decomposition, followed by Canonical Composition
+    ======== ===========
+
+    .. note::
+
+        This SQL-standard function has special syntax and requires
+        specifying ``form`` as a keyword, not as a string.
 
 .. function:: to_utf8(string) -> varbinary
 

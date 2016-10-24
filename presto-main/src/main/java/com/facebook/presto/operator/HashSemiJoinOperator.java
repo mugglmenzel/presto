@@ -18,17 +18,17 @@ import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.util.List;
-import java.util.Optional;
 
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
-import static com.facebook.presto.util.MoreFutures.tryGetUnchecked;
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
+import static io.airlift.concurrent.MoreFutures.tryGetFutureValue;
+import static java.util.Objects.requireNonNull;
 
 public class HashSemiJoinOperator
         implements Operator
@@ -39,21 +39,21 @@ public class HashSemiJoinOperator
             implements OperatorFactory
     {
         private final int operatorId;
+        private final PlanNodeId planNodeId;
         private final SetSupplier setSupplier;
         private final List<Type> probeTypes;
         private final int probeJoinChannel;
-        private final Optional<Integer> probeHashChannel;
         private final List<Type> types;
         private boolean closed;
 
-        public HashSemiJoinOperatorFactory(int operatorId, SetSupplier setSupplier, List<? extends Type> probeTypes, int probeJoinChannel, Optional<Integer> probeHashChannel)
+        public HashSemiJoinOperatorFactory(int operatorId, PlanNodeId planNodeId, SetSupplier setSupplier, List<? extends Type> probeTypes, int probeJoinChannel)
         {
             this.operatorId = operatorId;
+            this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
             this.setSupplier = setSupplier;
             this.probeTypes = ImmutableList.copyOf(probeTypes);
             checkArgument(probeJoinChannel >= 0, "probeJoinChannel is negative");
             this.probeJoinChannel = probeJoinChannel;
-            this.probeHashChannel = checkNotNull(probeHashChannel, "probeHashChannel is null");
 
             this.types = ImmutableList.<Type>builder()
                     .addAll(probeTypes)
@@ -71,8 +71,8 @@ public class HashSemiJoinOperator
         public Operator createOperator(DriverContext driverContext)
         {
             checkState(!closed, "Factory is already closed");
-            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, HashBuilderOperator.class.getSimpleName());
-            return new HashSemiJoinOperator(operatorContext, setSupplier, probeTypes, probeJoinChannel, probeHashChannel);
+            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, HashBuilderOperator.class.getSimpleName());
+            return new HashSemiJoinOperator(operatorContext, setSupplier, probeTypes, probeJoinChannel);
         }
 
         @Override
@@ -80,10 +80,15 @@ public class HashSemiJoinOperator
         {
             closed = true;
         }
+
+        @Override
+        public OperatorFactory duplicate()
+        {
+            return new HashSemiJoinOperatorFactory(operatorId, planNodeId, setSupplier, probeTypes, probeJoinChannel);
+        }
     }
 
     private final int probeJoinChannel;
-    private final Optional<Integer> probeHashChannel;
     private final List<Type> types;
     private final ListenableFuture<ChannelSet> channelSetFuture;
 
@@ -91,18 +96,17 @@ public class HashSemiJoinOperator
     private Page outputPage;
     private boolean finishing;
 
-    public HashSemiJoinOperator(OperatorContext operatorContext, SetSupplier channelSetFuture, List<Type> probeTypes, int probeJoinChannel, Optional<Integer> probeHashChannel)
+    public HashSemiJoinOperator(OperatorContext operatorContext, SetSupplier channelSetFuture, List<Type> probeTypes, int probeJoinChannel)
     {
-        this.operatorContext = checkNotNull(operatorContext, "operatorContext is null");
+        this.operatorContext = requireNonNull(operatorContext, "operatorContext is null");
 
         // todo pass in desired projection
-        checkNotNull(channelSetFuture, "hashProvider is null");
-        checkNotNull(probeTypes, "probeTypes is null");
+        requireNonNull(channelSetFuture, "hashProvider is null");
+        requireNonNull(probeTypes, "probeTypes is null");
         checkArgument(probeJoinChannel >= 0, "probeJoinChannel is negative");
 
         this.channelSetFuture = channelSetFuture.getChannelSet();
         this.probeJoinChannel = probeJoinChannel;
-        this.probeHashChannel = probeHashChannel;
 
         this.types = ImmutableList.<Type>builder()
                 .addAll(probeTypes)
@@ -148,7 +152,7 @@ public class HashSemiJoinOperator
         }
 
         if (channelSet == null) {
-            channelSet = tryGetUnchecked(channelSetFuture);
+            channelSet = tryGetFutureValue(channelSetFuture).orElse(null);
         }
         return channelSet != null;
     }
@@ -156,7 +160,7 @@ public class HashSemiJoinOperator
     @Override
     public void addInput(Page page)
     {
-        checkNotNull(page, "page is null");
+        requireNonNull(page, "page is null");
         checkState(!finishing, "Operator is finishing");
         checkState(channelSet != null, "Set has not been built yet");
         checkState(outputPage == null, "Operator still has pending output");

@@ -13,18 +13,21 @@
  */
 package com.facebook.presto.type;
 
-import com.facebook.presto.metadata.OperatorType;
-import com.facebook.presto.operator.scalar.ScalarFunction;
-import com.facebook.presto.operator.scalar.ScalarOperator;
 import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.function.LiteralParameters;
+import com.facebook.presto.spi.function.OperatorType;
+import com.facebook.presto.spi.function.ScalarFunction;
+import com.facebook.presto.spi.function.ScalarOperator;
+import com.facebook.presto.spi.function.SqlType;
 import com.facebook.presto.spi.type.StandardTypes;
-import io.airlift.jcodings.specific.UTF8Encoding;
+import io.airlift.jcodings.specific.NonStrictUTF8Encoding;
 import io.airlift.joni.Option;
 import io.airlift.joni.Regex;
 import io.airlift.joni.Syntax;
 import io.airlift.slice.Slice;
 
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
+import static com.facebook.presto.spi.type.Chars.padSpaces;
 import static io.airlift.joni.constants.MetaChar.INEFFECTIVE_META_CHAR;
 import static io.airlift.joni.constants.SyntaxProperties.OP_ASTERISK_ZERO_INF;
 import static io.airlift.joni.constants.SyntaxProperties.OP_DOT_ANYCHAR;
@@ -55,27 +58,39 @@ public final class LikeFunctions
     @SqlType(StandardTypes.BOOLEAN)
     public static boolean like(@SqlType(StandardTypes.VARCHAR) Slice value, @SqlType(LikePatternType.NAME) Regex pattern)
     {
-        // Joni doesn't handle invalid UTF-8, so replace invalid characters
+        // Joni can infinite loop with UTF8Encoding when invalid UTF-8 is encountered.
+        // NonStrictUTF8Encoding must be used to avoid this issue.
         byte[] bytes = value.getBytes();
-        if (isAscii(bytes)) {
-            return regexMatches(pattern, bytes);
-        }
-        // convert to a String and back to "fix" any broken UTF-8 sequences
-        return regexMatches(pattern, value.toStringUtf8().getBytes(UTF_8));
+        return regexMatches(pattern, bytes);
     }
 
     @ScalarOperator(OperatorType.CAST)
+    @LiteralParameters("x")
     @SqlType(LikePatternType.NAME)
-    public static Regex likePattern(@SqlType(StandardTypes.VARCHAR) Slice pattern)
+    public static Regex castVarcharToLikePattern(@SqlType("varchar") Slice pattern)
     {
-        return likeToPattern(pattern.toStringUtf8(), '0', false);
+        return likePattern(pattern);
+    }
+
+    @ScalarOperator(OperatorType.CAST)
+    @LiteralParameters("x")
+    @SqlType(LikePatternType.NAME)
+    public static Regex castCharToLikePattern(@LiteralParameter("x") Long charLength, @SqlType("char(x)") Slice pattern)
+    {
+        return likePattern(padSpaces(pattern, charLength.intValue()));
+    }
+
+    public static Regex likePattern(Slice pattern)
+    {
+        return likePattern(pattern.toStringUtf8(), '0', false);
     }
 
     @ScalarFunction
+    @LiteralParameters({"x", "y"})
     @SqlType(LikePatternType.NAME)
-    public static Regex likePattern(@SqlType(StandardTypes.VARCHAR) Slice pattern, @SqlType(StandardTypes.VARCHAR) Slice escape)
+    public static Regex likePattern(@SqlType("varchar(x)") Slice pattern, @SqlType("varchar(y)") Slice escape)
     {
-        return likeToPattern(pattern.toStringUtf8(), getEscapeChar(escape), true);
+        return likePattern(pattern.toStringUtf8(), getEscapeChar(escape), true);
     }
 
     private static boolean regexMatches(Regex regex, byte[] bytes)
@@ -84,7 +99,7 @@ public final class LikeFunctions
     }
 
     @SuppressWarnings("NestedSwitchStatement")
-    private static Regex likeToPattern(String patternString, char escapeChar, boolean shouldEscape)
+    private static Regex likePattern(String patternString, char escapeChar, boolean shouldEscape)
     {
         StringBuilder regex = new StringBuilder(patternString.length() * 2);
 
@@ -123,13 +138,13 @@ public final class LikeFunctions
         regex.append('$');
 
         byte[] bytes = regex.toString().getBytes(UTF_8);
-        return new Regex(bytes, 0, bytes.length, Option.MULTILINE, UTF8Encoding.INSTANCE, SYNTAX);
+        return new Regex(bytes, 0, bytes.length, Option.MULTILINE, NonStrictUTF8Encoding.INSTANCE, SYNTAX);
     }
 
     @SuppressWarnings("NumericCastThatLosesPrecision")
     private static char getEscapeChar(Slice escape)
     {
-        String escapeString = escape.toString(UTF_8);
+        String escapeString = escape.toStringUtf8();
         if (escapeString.isEmpty()) {
             // escaping disabled
             return (char) -1; // invalid character
@@ -138,15 +153,5 @@ public final class LikeFunctions
             return escapeString.charAt(0);
         }
         throw new PrestoException(INVALID_FUNCTION_ARGUMENT, "Escape must be empty or a single character");
-    }
-
-    private static boolean isAscii(byte[] bytes)
-    {
-        for (byte b : bytes) {
-            if (b < 0) {
-                return false;
-            }
-        }
-        return true;
     }
 }

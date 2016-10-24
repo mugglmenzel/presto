@@ -15,23 +15,31 @@ package com.facebook.presto.memory;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
+import static com.google.common.base.MoreObjects.toStringHelper;
 import static java.util.Objects.requireNonNull;
 
 public class MemoryPoolAssignmentsRequest
 {
+    private final String coordinatorId;
     private final long version;
     private final List<MemoryPoolAssignment> assignments;
 
     @JsonCreator
-    public MemoryPoolAssignmentsRequest(@JsonProperty("version") long version, @JsonProperty("assignments") List<MemoryPoolAssignment> assignments)
+    public MemoryPoolAssignmentsRequest(@JsonProperty("coordinatorId") String coordinatorId, @JsonProperty("version") long version, @JsonProperty("assignments") List<MemoryPoolAssignment> assignments)
     {
+        this.coordinatorId = requireNonNull(coordinatorId, "coordinatorId is null");
         this.version = version;
         this.assignments = ImmutableList.copyOf(requireNonNull(assignments, "assignments is null"));
+    }
+
+    @JsonProperty
+    public String getCoordinatorId()
+    {
+        return coordinatorId;
     }
 
     @JsonProperty
@@ -49,7 +57,7 @@ public class MemoryPoolAssignmentsRequest
     @Override
     public String toString()
     {
-        return MoreObjects.toStringHelper(this)
+        return toStringHelper(this)
                 .add("version", version)
                 .add("assignments", assignments)
                 .toString();

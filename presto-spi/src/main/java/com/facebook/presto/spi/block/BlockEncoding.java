@@ -35,11 +35,6 @@ public interface BlockEncoding
     void writeBlock(SliceOutput sliceOutput, Block block);
 
     /**
-     * Estimated serialized block size
-     */
-    int getEstimatedSize(Block block);
-
-    /**
      * Return associated factory
      */
     BlockEncodingFactory getFactory();

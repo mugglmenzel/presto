@@ -51,7 +51,8 @@ public final class TimeZoneKey
         try (InputStream in = TimeZoneIndex.class.getResourceAsStream("zone-index.properties")) {
             // load zone file
             // todo parse file by hand since Properties ignores duplicate entries
-            Properties data = new Properties() {
+            Properties data = new Properties()
+            {
                 @Override
                 public synchronized Object put(Object key, Object value)
                 {
@@ -225,6 +226,11 @@ public final class TimeZoneKey
             length = zoneId.length();
         }
 
+        // (+/-)00:00 is UTC
+        if ("+00:00".equals(zoneId) || "-00:00".equals(zoneId)) {
+            return "utc";
+        }
+
         // if zoneId matches XXX:XX, it is likely +HH:mm, so just return it
         // since only offset time zones will contain a `:` character
         if (length == 6 && zoneId.charAt(3) == ':') {
@@ -280,9 +286,7 @@ public final class TimeZoneKey
                 zoneId.equals("gmt0") ||
                 zoneId.equals("greenwich") ||
                 zoneId.equals("universal") ||
-                zoneId.equals("zulu") ||
-                zoneId.equals("+00:00") ||
-                zoneId.equals("-00:00");
+                zoneId.equals("zulu");
     }
 
     private static String zoneIdForOffset(long offset)

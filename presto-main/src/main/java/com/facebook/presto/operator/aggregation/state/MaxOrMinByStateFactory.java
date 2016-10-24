@@ -13,8 +13,9 @@
  */
 package com.facebook.presto.operator.aggregation.state;
 
+import com.facebook.presto.array.BlockBigArray;
 import com.facebook.presto.spi.block.Block;
-import com.facebook.presto.util.array.BlockBigArray;
+import com.facebook.presto.spi.function.AccumulatorStateFactory;
 
 public class MaxOrMinByStateFactory
         implements AccumulatorStateFactory<MaxOrMinByState>
@@ -99,10 +100,10 @@ public class MaxOrMinByStateFactory
         {
             long size = 0;
             if (key != null) {
-                size += key.getSizeInBytes();
+                size += key.getRetainedSizeInBytes();
             }
             if (value != null) {
-                size += value.getSizeInBytes();
+                size += value.getRetainedSizeInBytes();
             }
             return size;
         }

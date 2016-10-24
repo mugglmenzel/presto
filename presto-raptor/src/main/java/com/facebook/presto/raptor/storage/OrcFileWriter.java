@@ -13,61 +13,82 @@
  */
 package com.facebook.presto.raptor.storage;
 
+import com.facebook.presto.raptor.util.SyncingFileSystem;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PrestoException;
-import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.classloader.ThreadContextClassLoader;
+import com.facebook.presto.spi.type.DecimalType;
 import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.spi.type.TypeSignature;
 import com.facebook.presto.spi.type.VarbinaryType;
 import com.facebook.presto.spi.type.VarcharType;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import io.airlift.json.JsonCodec;
 import io.airlift.slice.Slice;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.ql.io.orc.NullMemoryManager;
 import org.apache.hadoop.hive.ql.io.orc.OrcFile;
 import org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat;
 import org.apache.hadoop.hive.ql.io.orc.OrcSerde;
+import org.apache.hadoop.hive.ql.io.orc.OrcWriterOptions;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
+import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Category;
 import org.apache.hadoop.hive.serde2.objectinspector.SettableStructObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.StructField;
-import org.apache.hadoop.mapred.JobConf;
+import org.apache.hadoop.hive.serde2.typeinfo.ListTypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.MapTypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoUtils;
 
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
+import java.nio.ByteBuffer;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 
 import static com.facebook.presto.raptor.RaptorErrorCode.RAPTOR_ERROR;
-import static com.facebook.presto.spi.StandardErrorCode.INTERNAL_ERROR;
+import static com.facebook.presto.raptor.storage.Row.extractRow;
+import static com.facebook.presto.raptor.storage.StorageType.arrayOf;
+import static com.facebook.presto.raptor.storage.StorageType.mapOf;
+import static com.facebook.presto.raptor.util.Types.isArrayType;
+import static com.facebook.presto.raptor.util.Types.isMapType;
+import static com.facebook.presto.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.google.common.base.Functions.toStringFunction;
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.collect.Iterables.transform;
+import static io.airlift.json.JsonCodec.jsonCodec;
+import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 import static org.apache.hadoop.hive.metastore.api.hive_metastoreConstants.META_TABLE_COLUMNS;
 import static org.apache.hadoop.hive.metastore.api.hive_metastoreConstants.META_TABLE_COLUMN_TYPES;
 import static org.apache.hadoop.hive.ql.exec.FileSinkOperator.RecordWriter;
 import static org.apache.hadoop.hive.ql.io.orc.CompressionKind.SNAPPY;
+import static org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Category.LIST;
+import static org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Category.MAP;
+import static org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Category.PRIMITIVE;
+import static org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorFactory.getStandardListObjectInspector;
+import static org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorFactory.getStandardMapObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorFactory.getStandardStructObjectInspector;
-import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaBooleanObjectInspector;
-import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaByteArrayObjectInspector;
-import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaDoubleObjectInspector;
-import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaLongObjectInspector;
-import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaStringObjectInspector;
+import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.getPrimitiveJavaObjectInspector;
+import static org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory.getPrimitiveTypeInfo;
 
 public class OrcFileWriter
         implements Closeable
 {
-    private static final JobConf JOB_CONF = createJobConf();
+    private static final Configuration CONFIGURATION = new Configuration();
     private static final Constructor<? extends RecordWriter> WRITER_CONSTRUCTOR = getOrcWriterConstructor();
+    private static final JsonCodec<OrcFileMetadata> METADATA_CODEC = jsonCodec(OrcFileMetadata.class);
 
     private final List<Type> columnTypes;
 
@@ -75,14 +96,21 @@ public class OrcFileWriter
     private final RecordWriter recordWriter;
     private final SettableStructObjectInspector tableInspector;
     private final List<StructField> structFields;
-    private final Object row;
+    private final Object orcRow;
 
+    private boolean closed;
     private long rowCount;
     private long uncompressedSize;
 
     public OrcFileWriter(List<Long> columnIds, List<Type> columnTypes, File target)
     {
-        this.columnTypes = ImmutableList.copyOf(checkNotNull(columnTypes, "columnTypes is null"));
+        this(columnIds, columnTypes, target, true);
+    }
+
+    @VisibleForTesting
+    OrcFileWriter(List<Long> columnIds, List<Type> columnTypes, File target, boolean writeMetadata)
+    {
+        this.columnTypes = ImmutableList.copyOf(requireNonNull(columnTypes, "columnTypes is null"));
         checkArgument(columnIds.size() == columnTypes.size(), "ids and types mismatch");
         checkArgument(isUnique(columnIds), "ids must be unique");
 
@@ -94,22 +122,21 @@ public class OrcFileWriter
         properties.setProperty(META_TABLE_COLUMNS, Joiner.on(',').join(columnNames));
         properties.setProperty(META_TABLE_COLUMN_TYPES, Joiner.on(':').join(hiveTypeNames));
 
-        serializer = createSerializer(JOB_CONF, properties);
-        recordWriter = createRecordWriter(new Path(target.toURI()), JOB_CONF);
+        serializer = createSerializer(CONFIGURATION, properties);
+        recordWriter = createRecordWriter(new Path(target.toURI()), CONFIGURATION, columnIds, columnTypes, writeMetadata);
 
         tableInspector = getStandardStructObjectInspector(columnNames, getJavaObjectInspectors(storageTypes));
         structFields = ImmutableList.copyOf(tableInspector.getAllStructFieldRefs());
-        row = tableInspector.create();
+        orcRow = tableInspector.create();
     }
 
     public void appendPages(List<Page> pages)
     {
         for (Page page : pages) {
             for (int position = 0; position < page.getPositionCount(); position++) {
-                appendRow(page, position);
+                appendRow(extractRow(page, position, columnTypes));
             }
         }
-        updateDataSize(pages);
     }
 
     public void appendPages(List<Page> inputPages, int[] pageIndexes, int[] positionIndexes)
@@ -117,37 +144,35 @@ public class OrcFileWriter
         checkArgument(pageIndexes.length == positionIndexes.length, "pageIndexes and positionIndexes do not match");
         for (int i = 0; i < pageIndexes.length; i++) {
             Page page = inputPages.get(pageIndexes[i]);
-            appendRow(page, positionIndexes[i]);
-        }
-        updateDataSize(inputPages);
-    }
-
-    private void updateDataSize(List<Page> pages)
-    {
-        for (Page page : pages) {
-            uncompressedSize += page.getSizeInBytes();
+            appendRow(extractRow(page, positionIndexes[i], columnTypes));
         }
     }
 
-    private void appendRow(Page page, int position)
+    public void appendRow(Row row)
     {
-        checkArgument(page.getChannelCount() == columnTypes.size(), "channelCount does not match");
-        for (int channel = 0; channel < page.getChannelCount(); channel++) {
-            Object value = getValue(position, page.getBlock(channel), columnTypes.get(channel));
-            tableInspector.setStructFieldData(row, structFields.get(channel), value);
+        List<Object> columns = row.getColumns();
+        checkArgument(columns.size() == columnTypes.size());
+        for (int channel = 0; channel < columns.size(); channel++) {
+            tableInspector.setStructFieldData(orcRow, structFields.get(channel), columns.get(channel));
         }
         try {
-            recordWriter.write(serializer.serialize(row, tableInspector));
+            recordWriter.write(serializer.serialize(orcRow, tableInspector));
         }
         catch (IOException e) {
             throw new PrestoException(RAPTOR_ERROR, "Failed to write record", e);
         }
         rowCount++;
+        uncompressedSize += row.getSizeInBytes();
     }
 
     @Override
     public void close()
     {
+        if (closed) {
+            return;
+        }
+        closed = true;
+
         try {
             recordWriter.close(false);
         }
@@ -173,18 +198,47 @@ public class OrcFileWriter
         return serde;
     }
 
-    private static RecordWriter createRecordWriter(Path target, JobConf conf)
+    private static RecordWriter createRecordWriter(Path target, Configuration conf, List<Long> columnIds, List<Type> columnTypes, boolean writeMetadata)
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(FileSystem.class.getClassLoader());
-                FileSystem fileSystem = new SyncingFileSystem()) {
-            OrcFile.WriterOptions options = OrcFile.writerOptions(conf)
+                FileSystem fileSystem = new SyncingFileSystem(CONFIGURATION)) {
+            OrcFile.WriterOptions options = new OrcWriterOptions(conf)
+                    .memory(new NullMemoryManager(conf))
                     .fileSystem(fileSystem)
                     .compress(SNAPPY);
+
+            if (writeMetadata) {
+                options.callback(createFileMetadataCallback(columnIds, columnTypes));
+            }
+
             return WRITER_CONSTRUCTOR.newInstance(target, options);
         }
         catch (ReflectiveOperationException | IOException e) {
             throw new PrestoException(RAPTOR_ERROR, "Failed to create writer", e);
         }
+    }
+
+    private static OrcFile.WriterCallback createFileMetadataCallback(List<Long> columnIds, List<Type> columnTypes)
+    {
+        return new OrcFile.WriterCallback()
+        {
+            @Override
+            public void preStripeWrite(OrcFile.WriterContext context)
+                    throws IOException
+            {}
+
+            @Override
+            public void preFooterWrite(OrcFile.WriterContext context)
+                    throws IOException
+            {
+                ImmutableMap.Builder<Long, TypeSignature> columnTypesMap = ImmutableMap.builder();
+                for (int i = 0; i < columnIds.size(); i++) {
+                    columnTypesMap.put(columnIds.get(i), columnTypes.get(i).getTypeSignature());
+                }
+                byte[] bytes = METADATA_CODEC.toJsonBytes(new OrcFileMetadata(columnTypesMap.build()));
+                context.getWriter().addUserMetadata(OrcFileMetadata.KEY, ByteBuffer.wrap(bytes));
+            }
+        };
     }
 
     private static Constructor<? extends RecordWriter> getOrcWriterConstructor()
@@ -202,33 +256,32 @@ public class OrcFileWriter
         }
     }
 
-    private static JobConf createJobConf()
-    {
-        JobConf jobConf = new JobConf();
-        jobConf.setClassLoader(JobConf.class.getClassLoader());
-        return new JobConf();
-    }
-
     private static List<ObjectInspector> getJavaObjectInspectors(List<StorageType> types)
     {
-        return types.stream().map(OrcFileWriter::getJavaObjectInspector).collect(toList());
+        return types.stream()
+                .map(StorageType::getHiveTypeName)
+                .map(TypeInfoUtils::getTypeInfoFromTypeString)
+                .map(OrcFileWriter::getJavaObjectInspector)
+                .collect(toList());
     }
 
-    private static ObjectInspector getJavaObjectInspector(StorageType type)
+    private static ObjectInspector getJavaObjectInspector(TypeInfo typeInfo)
     {
-        switch (type) {
-            case BOOLEAN:
-                return javaBooleanObjectInspector;
-            case LONG:
-                return javaLongObjectInspector;
-            case DOUBLE:
-                return javaDoubleObjectInspector;
-            case STRING:
-                return javaStringObjectInspector;
-            case BYTES:
-                return javaByteArrayObjectInspector;
+        Category category = typeInfo.getCategory();
+        if (category == PRIMITIVE) {
+            return getPrimitiveJavaObjectInspector(getPrimitiveTypeInfo(typeInfo.getTypeName()));
         }
-        throw new PrestoException(INTERNAL_ERROR, "Unhandled storage type: " + type);
+        if (category == LIST) {
+            ListTypeInfo listTypeInfo = (ListTypeInfo) typeInfo;
+            return getStandardListObjectInspector(getJavaObjectInspector(listTypeInfo.getListElementTypeInfo()));
+        }
+        if (category == MAP) {
+            MapTypeInfo mapTypeInfo = (MapTypeInfo) typeInfo;
+            return getStandardMapObjectInspector(
+                    getJavaObjectInspector(mapTypeInfo.getMapKeyTypeInfo()),
+                    getJavaObjectInspector(mapTypeInfo.getMapValueTypeInfo()));
+        }
+        throw new PrestoException(GENERIC_INTERNAL_ERROR, "Unhandled storage type: " + category);
     }
 
     private static <T> boolean isUnique(Collection<T> items)
@@ -243,6 +296,10 @@ public class OrcFileWriter
 
     private static StorageType toStorageType(Type type)
     {
+        if (type instanceof DecimalType) {
+            DecimalType decimalType = (DecimalType) type;
+            return StorageType.decimal(decimalType.getPrecision(), decimalType.getScale());
+        }
         Class<?> javaType = type.getJavaType();
         if (javaType == boolean.class) {
             return StorageType.BOOLEAN;
@@ -254,36 +311,19 @@ public class OrcFileWriter
             return StorageType.DOUBLE;
         }
         if (javaType == Slice.class) {
-            if (type.equals(VarcharType.VARCHAR)) {
+            if (type instanceof VarcharType) {
                 return StorageType.STRING;
             }
             if (type.equals(VarbinaryType.VARBINARY)) {
                 return StorageType.BYTES;
             }
         }
+        if (isArrayType(type)) {
+            return arrayOf(toStorageType(type.getTypeParameters().get(0)));
+        }
+        if (isMapType(type)) {
+            return mapOf(toStorageType(type.getTypeParameters().get(0)), toStorageType(type.getTypeParameters().get(1)));
+        }
         throw new PrestoException(NOT_SUPPORTED, "No storage type for type: " + type);
-    }
-
-    private static Object getValue(int position, Block block, Type type)
-    {
-        if (block.isNull(position)) {
-            return null;
-        }
-        if (type.getJavaType() == boolean.class) {
-            return type.getBoolean(block, position);
-        }
-        if (type.getJavaType() == long.class) {
-            return type.getLong(block, position);
-        }
-        if (type.getJavaType() == double.class) {
-            return type.getDouble(block, position);
-        }
-        if (type.getJavaType() == Slice.class) {
-            if (type.equals(VarcharType.VARCHAR)) {
-                return new String(type.getSlice(block, position).getBytes());
-            }
-            return type.getSlice(block, position).getBytes();
-        }
-        throw new AssertionError("unimplemented type: " + type);
     }
 }

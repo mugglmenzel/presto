@@ -26,4 +26,18 @@ public class TestJdbcIntegrationSmokeTest
     {
         super(createJdbcQueryRunner(ORDERS));
     }
+
+    @Override
+    public void testTableSampleSystem()
+            throws Exception
+    {
+        // tablesample system doesn't work reliably with jdbc connector
+        // because it generates a single split
+    }
+
+    @Override
+    public void testViewAccessControl()
+    {
+        // jdbc connector does not support views
+    }
 }

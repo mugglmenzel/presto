@@ -15,6 +15,7 @@ package com.facebook.presto.operator.aggregation.state;
 
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
+import com.facebook.presto.spi.function.AccumulatorStateSerializer;
 import com.facebook.presto.spi.type.Type;
 
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
@@ -22,22 +23,10 @@ import static com.facebook.presto.spi.type.BigintType.BIGINT;
 public class NullableLongStateSerializer
         implements AccumulatorStateSerializer<NullableLongState>
 {
-    private final Type type;
-
-    public NullableLongStateSerializer()
-    {
-        this(BIGINT);
-    }
-
-    public NullableLongStateSerializer(Type type)
-    {
-        this.type = type;
-    }
-
     @Override
     public Type getSerializedType()
     {
-        return type;
+        return BIGINT;
     }
 
     @Override
@@ -47,16 +36,14 @@ public class NullableLongStateSerializer
             out.appendNull();
         }
         else {
-            type.writeLong(out, state.getLong());
+            BIGINT.writeLong(out, state.getLong());
         }
     }
 
     @Override
     public void deserialize(Block block, int index, NullableLongState state)
     {
-        state.setNull(block.isNull(index));
-        if (!state.isNull()) {
-            state.setLong(type.getLong(block, index));
-        }
+        state.setNull(false);
+        state.setLong(BIGINT.getLong(block, index));
     }
 }

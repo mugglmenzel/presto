@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.execution;
 
+import com.facebook.presto.spi.QueryId;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 import org.testng.annotations.Test;
@@ -61,11 +62,6 @@ public class TestQueryIdGenerator
             extends QueryIdGenerator
     {
         private long now;
-
-        public String getCoordinatorId()
-        {
-            return coordinatorId;
-        }
 
         public void setNow(long now)
         {

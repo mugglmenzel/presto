@@ -15,9 +15,9 @@ package com.facebook.presto.orc.checkpoint;
 
 import com.facebook.presto.orc.checkpoint.Checkpoints.ColumnPositionsList;
 import com.facebook.presto.orc.metadata.CompressionKind;
-import com.google.common.base.MoreObjects;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.MoreObjects.toStringHelper;
+import static java.util.Objects.requireNonNull;
 
 public final class BooleanStreamCheckpoint
         implements StreamCheckpoint
@@ -28,7 +28,7 @@ public final class BooleanStreamCheckpoint
     public BooleanStreamCheckpoint(int offset, ByteStreamCheckpoint byteStreamCheckpoint)
     {
         this.offset = offset;
-        this.byteStreamCheckpoint = checkNotNull(byteStreamCheckpoint, "byteStreamCheckpoint is null");
+        this.byteStreamCheckpoint = requireNonNull(byteStreamCheckpoint, "byteStreamCheckpoint is null");
     }
 
     public BooleanStreamCheckpoint(CompressionKind compressionKind, ColumnPositionsList positionsList)
@@ -50,7 +50,7 @@ public final class BooleanStreamCheckpoint
     @Override
     public String toString()
     {
-        return MoreObjects.toStringHelper(this)
+        return toStringHelper(this)
                 .add("offset", offset)
                 .add("byteStreamCheckpoint", byteStreamCheckpoint)
                 .toString();

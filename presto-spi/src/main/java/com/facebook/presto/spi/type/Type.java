@@ -51,7 +51,7 @@ public interface Type
      * expression execution. This value is used to determine which method should
      * be called on Cursor, RecordSet or RandomAccessBlock to fetch a value of
      * this type.
-     *
+     * <p>
      * Currently, this must be boolean, long, double, or Slice.
      */
     Class<?> getJavaType();
@@ -101,6 +101,11 @@ public interface Type
     Slice getSlice(Block block, int position);
 
     /**
+     * Gets the value at the {@code block} {@code position} as an Object.
+     */
+    Object getObject(Block block, int position);
+
+    /**
      * Writes the boolean value into the {@code BlockBuilder}.
      */
     void writeBoolean(BlockBuilder blockBuilder, boolean value);
@@ -126,6 +131,11 @@ public interface Type
     void writeSlice(BlockBuilder blockBuilder, Slice value, int offset, int length);
 
     /**
+     * Writes the Object value into the {@code BlockBuilder}.
+     */
+    void writeObject(BlockBuilder blockBuilder, Object value);
+
+    /**
      * Append the value at {@code position} in {@code block} to {@code blockBuilder}.
      */
     void appendTo(Block block, int position, BlockBuilder blockBuilder);
@@ -139,7 +149,7 @@ public interface Type
      * Calculates the hash code of the value at the specified position in the
      * specified block.
      */
-    int hash(Block block, int position);
+    long hash(Block block, int position);
 
     /**
      * Compare the values in the specified block at the specified positions equal.

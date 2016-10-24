@@ -13,11 +13,16 @@
  */
 package com.facebook.presto.spi;
 
+import com.facebook.presto.spi.connector.ConnectorContext;
+
 import java.util.Map;
 
+@Deprecated
 public interface ConnectorFactory
 {
     String getName();
 
-    Connector create(String connectorId, Map<String, String> config);
+    ConnectorHandleResolver getHandleResolver();
+
+    Connector create(String connectorId, Map<String, String> config, ConnectorContext context);
 }

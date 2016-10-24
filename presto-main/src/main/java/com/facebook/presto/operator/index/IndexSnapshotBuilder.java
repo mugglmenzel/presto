@@ -29,8 +29,8 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
+import static java.util.Objects.requireNonNull;
 
 public class IndexSnapshotBuilder
 {
@@ -56,11 +56,11 @@ public class IndexSnapshotBuilder
             DataSize maxMemoryInBytes,
             int expectedPositions)
     {
-        checkNotNull(outputTypes, "outputTypes is null");
-        checkNotNull(keyOutputChannels, "keyOutputChannels is null");
-        checkNotNull(keyOutputHashChannel, "keyOutputHashChannel is null");
-        checkNotNull(driverContext, "driverContext is null");
-        checkNotNull(maxMemoryInBytes, "maxMemoryInBytes is null");
+        requireNonNull(outputTypes, "outputTypes is null");
+        requireNonNull(keyOutputChannels, "keyOutputChannels is null");
+        requireNonNull(keyOutputHashChannel, "keyOutputHashChannel is null");
+        requireNonNull(driverContext, "driverContext is null");
+        requireNonNull(maxMemoryInBytes, "maxMemoryInBytes is null");
         checkArgument(expectedPositions > 0, "expectedPositions must be greater than zero");
 
         this.outputTypes = ImmutableList.copyOf(outputTypes);
@@ -118,7 +118,7 @@ public class IndexSnapshotBuilder
         }
         pages.clear();
 
-        LookupSource lookupSource = outputPagesIndex.createLookupSource(keyOutputChannels, keyOutputHashChannel);
+        LookupSource lookupSource = outputPagesIndex.createLookupSource(keyOutputChannels, keyOutputHashChannel, Optional.empty());
 
         // Build a page containing the keys that produced no output rows, so in future requests can skip these keys
         PageBuilder missingKeysPageBuilder = new PageBuilder(missingKeysIndex.getTypes());
@@ -127,7 +127,7 @@ public class IndexSnapshotBuilder
             Block[] blocks = indexKeysRecordCursor.getBlocks();
             Page page = indexKeysRecordCursor.getPage();
             int position = indexKeysRecordCursor.getPosition();
-            if (lookupSource.getJoinPosition(position, page) < 0) {
+            if (lookupSource.getJoinPosition(position, page, page) < 0) {
                 missingKeysPageBuilder.declarePosition();
                 for (int i = 0; i < blocks.length; i++) {
                     Block block = blocks[i];

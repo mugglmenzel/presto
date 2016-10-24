@@ -10,6 +10,8 @@ Functions and Operators
     functions/conditional
     functions/conversion
     functions/math
+    functions/bitwise
+    functions/decimal
     functions/string
     functions/binary
     functions/datetime
@@ -21,3 +23,4 @@ Functions and Operators
     functions/color
     functions/array
     functions/map
+    functions/teradata

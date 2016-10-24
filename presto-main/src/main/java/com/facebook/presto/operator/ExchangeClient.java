@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.operator;
 
+import com.facebook.presto.execution.SystemMemoryUsageListener;
 import com.facebook.presto.operator.HttpPageBufferClient.ClientCallback;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.block.BlockEncodingSerde;
@@ -45,9 +46,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.Sets.newConcurrentHashSet;
+import static java.util.Objects.requireNonNull;
 
 @ThreadSafe
 public class ExchangeClient
@@ -90,6 +91,8 @@ public class ExchangeClient
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicReference<Throwable> failure = new AtomicReference<>();
 
+    private final SystemMemoryUsageListener systemMemoryUsageListener;
+
     public ExchangeClient(
             BlockEncodingSerde blockEncodingSerde,
             DataSize maxBufferedBytes,
@@ -97,7 +100,8 @@ public class ExchangeClient
             int concurrentRequestMultiplier,
             Duration minErrorDuration,
             HttpClient httpClient,
-            ScheduledExecutorService executor)
+            ScheduledExecutorService executor,
+            SystemMemoryUsageListener systemMemoryUsageListener)
     {
         this.blockEncodingSerde = blockEncodingSerde;
         this.maxBufferedBytes = maxBufferedBytes.toBytes();
@@ -106,6 +110,7 @@ public class ExchangeClient
         this.minErrorDuration = minErrorDuration;
         this.httpClient = httpClient;
         this.executor = executor;
+        this.systemMemoryUsageListener = systemMemoryUsageListener;
     }
 
     public synchronized ExchangeClientStatus getStatus()
@@ -124,7 +129,7 @@ public class ExchangeClient
 
     public synchronized void addLocation(URI location)
     {
-        checkNotNull(location, "location is null");
+        requireNonNull(location, "location is null");
         if (locations.contains(location)) {
             return;
         }
@@ -197,7 +202,8 @@ public class ExchangeClient
 
         if (page != null) {
             synchronized (this) {
-                bufferBytes -= page.getSizeInBytes();
+                bufferBytes -= page.getRetainedSizeInBytes();
+                systemMemoryUsageListener.updateSystemMemoryUsage(-page.getRetainedSizeInBytes());
             }
             if (!closed.get() && pageBuffer.peek() == NO_MORE_PAGES) {
                 closed.set(true);
@@ -205,6 +211,12 @@ public class ExchangeClient
             scheduleRequestIfNecessary();
         }
         return page;
+    }
+
+    public boolean isFinished()
+    {
+        throwIfFailed();
+        return isClosed() && completedClients.size() == locations.size();
     }
 
     public boolean isClosed()
@@ -220,6 +232,7 @@ public class ExchangeClient
             closeQuietly(client);
         }
         pageBuffer.clear();
+        systemMemoryUsageListener.updateSystemMemoryUsage(-bufferBytes);
         bufferBytes = 0;
         if (pageBuffer.peekLast() != NO_MORE_PAGES) {
             checkState(pageBuffer.add(NO_MORE_PAGES), "Could not add no more pages marker");
@@ -229,7 +242,7 @@ public class ExchangeClient
 
     public synchronized void scheduleRequestIfNecessary()
     {
-        if (isClosed() || isFailed()) {
+        if (isFinished() || isFailed()) {
             return;
         }
 
@@ -259,10 +272,6 @@ public class ExchangeClient
                 allClients.put(location, client);
                 queuedClients.add(client);
             }
-        }
-
-        if (bufferBytes > maxBufferedBytes) {
-            return;
         }
 
         long neededBytes = maxBufferedBytes - bufferBytes;
@@ -296,24 +305,33 @@ public class ExchangeClient
         return future;
     }
 
-    private synchronized void addPage(Page page)
+    private synchronized boolean addPages(List<Page> pages)
     {
         if (isClosed() || isFailed()) {
-            return;
+            return false;
         }
 
-        pageBuffer.add(page);
+        pageBuffer.addAll(pages);
 
         // notify all blocked callers
         notifyBlockedCallers();
 
-        bufferBytes += page.getSizeInBytes();
+        long memorySize = pages.stream()
+                .mapToLong(Page::getRetainedSizeInBytes)
+                .sum();
+
+        bufferBytes += memorySize;
+        systemMemoryUsageListener.updateSystemMemoryUsage(memorySize);
         successfulRequests++;
 
+        long responseSize = pages.stream()
+                .mapToLong(Page::getSizeInBytes)
+                .sum();
         // AVG_n = AVG_(n-1) * (n-1)/n + VALUE_n / n
-        averageBytesPerRequest = (long) (1.0 * averageBytesPerRequest * (successfulRequests - 1) / successfulRequests + page.getSizeInBytes() / successfulRequests);
+        averageBytesPerRequest = (long) (1.0 * averageBytesPerRequest * (successfulRequests - 1) / successfulRequests + responseSize / successfulRequests);
 
         scheduleRequestIfNecessary();
+        return true;
     }
 
     private synchronized void notifyBlockedCallers()
@@ -335,7 +353,7 @@ public class ExchangeClient
 
     private synchronized void clientFinished(HttpPageBufferClient client)
     {
-        checkNotNull(client, "client is null");
+        requireNonNull(client, "client is null");
         completedClients.add(client);
         scheduleRequestIfNecessary();
     }
@@ -367,18 +385,19 @@ public class ExchangeClient
             implements ClientCallback
     {
         @Override
-        public void addPage(HttpPageBufferClient client, Page page)
+        public boolean addPages(HttpPageBufferClient client, List<Page> pages)
         {
-            checkNotNull(client, "client is null");
-            checkNotNull(page, "page is null");
-            ExchangeClient.this.addPage(page);
+            requireNonNull(client, "client is null");
+            requireNonNull(pages, "pages is null");
+            boolean added = ExchangeClient.this.addPages(pages);
             scheduleRequestIfNecessary();
+            return added;
         }
 
         @Override
         public void requestComplete(HttpPageBufferClient client)
         {
-            checkNotNull(client, "client is null");
+            requireNonNull(client, "client is null");
             ExchangeClient.this.requestComplete(client);
         }
 
@@ -391,8 +410,8 @@ public class ExchangeClient
         @Override
         public void clientFailed(HttpPageBufferClient client, Throwable cause)
         {
-            checkNotNull(client, "client is null");
-            checkNotNull(cause, "cause is null");
+            requireNonNull(client, "client is null");
+            requireNonNull(cause, "cause is null");
             ExchangeClient.this.clientFailed(cause);
         }
     }

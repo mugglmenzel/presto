@@ -13,84 +13,104 @@
  */
 package com.facebook.presto.sql.analyzer;
 
-import com.facebook.presto.spi.ColumnHandle;
-import com.facebook.presto.metadata.FunctionInfo;
-import com.facebook.presto.metadata.QualifiedTableName;
+import com.facebook.presto.metadata.QualifiedObjectName;
+import com.facebook.presto.metadata.Signature;
 import com.facebook.presto.metadata.TableHandle;
+import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.sql.tree.DefaultTraversalVisitor;
+import com.facebook.presto.sql.tree.ExistsPredicate;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.FunctionCall;
 import com.facebook.presto.sql.tree.InPredicate;
 import com.facebook.presto.sql.tree.Join;
 import com.facebook.presto.sql.tree.Node;
-import com.facebook.presto.sql.tree.QualifiedName;
-import com.facebook.presto.sql.tree.QualifiedNameReference;
 import com.facebook.presto.sql.tree.Query;
 import com.facebook.presto.sql.tree.QuerySpecification;
+import com.facebook.presto.sql.tree.Relation;
 import com.facebook.presto.sql.tree.SampledRelation;
+import com.facebook.presto.sql.tree.Statement;
+import com.facebook.presto.sql.tree.SubqueryExpression;
 import com.facebook.presto.sql.tree.Table;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.SetMultimap;
+import com.google.common.collect.ListMultimap;
+
+import javax.annotation.Nullable;
+import javax.annotation.concurrent.Immutable;
 
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.Sets.newIdentityHashSet;
+import static java.util.Objects.requireNonNull;
 
 public class Analysis
 {
-    private Query query;
+    private final Statement root;
+    private final List<Expression> parameters;
     private String updateType;
 
     private final IdentityHashMap<Table, Query> namedQueries = new IdentityHashMap<>();
 
-    private TupleDescriptor outputDescriptor;
-    private final IdentityHashMap<Node, TupleDescriptor> outputDescriptors = new IdentityHashMap<>();
-    private final IdentityHashMap<Expression, Map<QualifiedName, Integer>> resolvedNames = new IdentityHashMap<>();
+    private final IdentityHashMap<Node, Scope> scopes = new IdentityHashMap<>();
+    private final Set<Expression> columnReferences = newIdentityHashSet();
 
     private final IdentityHashMap<QuerySpecification, List<FunctionCall>> aggregates = new IdentityHashMap<>();
-    private final IdentityHashMap<QuerySpecification, List<FieldOrExpression>> groupByExpressions = new IdentityHashMap<>();
-    private final IdentityHashMap<QuerySpecification, Expression> where = new IdentityHashMap<>();
+    private final IdentityHashMap<QuerySpecification, List<List<Expression>>> groupByExpressions = new IdentityHashMap<>();
+    private final IdentityHashMap<Node, Expression> where = new IdentityHashMap<>();
     private final IdentityHashMap<QuerySpecification, Expression> having = new IdentityHashMap<>();
-    private final IdentityHashMap<Node, List<FieldOrExpression>> orderByExpressions = new IdentityHashMap<>();
-    private final IdentityHashMap<Node, List<FieldOrExpression>> outputExpressions = new IdentityHashMap<>();
+    private final IdentityHashMap<Node, List<Expression>> orderByExpressions = new IdentityHashMap<>();
+    private final IdentityHashMap<Node, List<Expression>> outputExpressions = new IdentityHashMap<>();
     private final IdentityHashMap<QuerySpecification, List<FunctionCall>> windowFunctions = new IdentityHashMap<>();
 
     private final IdentityHashMap<Join, Expression> joins = new IdentityHashMap<>();
-    private final SetMultimap<Node, InPredicate> inPredicates = HashMultimap.create();
-    private final IdentityHashMap<Join, JoinInPredicates> joinInPredicates = new IdentityHashMap<>();
+    private final ListMultimap<Node, InPredicate> inPredicatesSubqueries = ArrayListMultimap.create();
+    private final ListMultimap<Node, SubqueryExpression> scalarSubqueries = ArrayListMultimap.create();
+    private final ListMultimap<Node, ExistsPredicate> existsSubqueries = ArrayListMultimap.create();
 
     private final IdentityHashMap<Table, TableHandle> tables = new IdentityHashMap<>();
 
-    private final IdentityHashMap<Expression, Boolean> rowFieldReferences = new IdentityHashMap<>();
     private final IdentityHashMap<Expression, Type> types = new IdentityHashMap<>();
     private final IdentityHashMap<Expression, Type> coercions = new IdentityHashMap<>();
-    private final IdentityHashMap<FunctionCall, FunctionInfo> functionInfo = new IdentityHashMap<>();
+    private final Set<Expression> typeOnlyCoercions = newIdentityHashSet();
+    private final IdentityHashMap<Relation, Type[]> relationCoercions = new IdentityHashMap<>();
+    private final IdentityHashMap<FunctionCall, Signature> functionSignature = new IdentityHashMap<>();
 
     private final IdentityHashMap<Field, ColumnHandle> columns = new IdentityHashMap<>();
 
     private final IdentityHashMap<SampledRelation, Double> sampleRatios = new IdentityHashMap<>();
 
     // for create table
-    private Optional<QualifiedTableName> createTableDestination = Optional.empty();
+    private Optional<QualifiedObjectName> createTableDestination = Optional.empty();
+    private Map<String, Expression> createTableProperties = ImmutableMap.of();
+    private boolean createTableAsSelectWithData = true;
+    private boolean createTableAsSelectNoOp = false;
 
-    // for insert
-    private Optional<TableHandle> insertTarget = Optional.empty();
+    private Optional<Insert> insert = Optional.empty();
 
-    public Query getQuery()
+    // for describe input and describe output
+    private final boolean isDescribe;
+
+    public Analysis(Statement root, List<Expression> parameters, boolean isDescribe)
     {
-        return query;
+        requireNonNull(parameters);
+
+        this.root = root;
+        this.parameters = parameters;
+        this.isDescribe = isDescribe;
     }
 
-    public void setQuery(Query query)
+    public Statement getStatement()
     {
-        this.query = query;
+        return root;
     }
 
     public String getUpdateType()
@@ -103,14 +123,24 @@ public class Analysis
         this.updateType = updateType;
     }
 
-    public void addResolvedNames(Expression expression, Map<QualifiedName, Integer> mappings)
+    public boolean isCreateTableAsSelectWithData()
     {
-        resolvedNames.put(expression, mappings);
+        return createTableAsSelectWithData;
     }
 
-    public Map<QualifiedName, Integer> getResolvedNames(Expression expression)
+    public void setCreateTableAsSelectWithData(boolean createTableAsSelectWithData)
     {
-        return resolvedNames.get(expression);
+        this.createTableAsSelectWithData = createTableAsSelectWithData;
+    }
+
+    public boolean isCreateTableAsSelectNoOp()
+    {
+        return createTableAsSelectNoOp;
+    }
+
+    public void setCreateTableAsSelectNoOp(boolean createTableAsSelectNoOp)
+    {
+        this.createTableAsSelectNoOp = createTableAsSelectNoOp;
     }
 
     public void setAggregates(QuerySpecification node, List<FunctionCall> aggregates)
@@ -128,15 +158,34 @@ public class Analysis
         return new IdentityHashMap<>(types);
     }
 
-    public boolean isRowFieldReference(QualifiedNameReference qualifiedNameReference)
-    {
-        return rowFieldReferences.containsKey(qualifiedNameReference);
-    }
-
     public Type getType(Expression expression)
     {
-        Preconditions.checkArgument(types.containsKey(expression), "Expression not analyzed: %s", expression);
+        checkArgument(types.containsKey(expression), "Expression not analyzed: %s", expression);
         return types.get(expression);
+    }
+
+    public Type getTypeWithCoercions(Expression expression)
+    {
+        checkArgument(types.containsKey(expression), "Expression not analyzed: %s", expression);
+        if (coercions.containsKey(expression)) {
+            return coercions.get(expression);
+        }
+        return types.get(expression);
+    }
+
+    public Type[] getRelationCoercion(Relation relation)
+    {
+        return relationCoercions.get(relation);
+    }
+
+    public void addRelationCoercion(Relation relation, Type[] types)
+    {
+        relationCoercions.put(relation, types);
+    }
+
+    public IdentityHashMap<Expression, Type> getCoercions()
+    {
+        return coercions;
     }
 
     public Type getCoercion(Expression expression)
@@ -144,17 +193,22 @@ public class Analysis
         return coercions.get(expression);
     }
 
-    public void setGroupByExpressions(QuerySpecification node, List<FieldOrExpression> expressions)
+    public void setGroupingSets(QuerySpecification node, List<List<Expression>> expressions)
     {
         groupByExpressions.put(node, expressions);
     }
 
-    public List<FieldOrExpression> getGroupByExpressions(QuerySpecification node)
+    public boolean isTypeOnlyCoercion(Expression expression)
+    {
+        return typeOnlyCoercions.contains(expression);
+    }
+
+    public List<List<Expression>> getGroupingSets(QuerySpecification node)
     {
         return groupByExpressions.get(node);
     }
 
-    public void setWhere(QuerySpecification node, Expression expression)
+    public void setWhere(Node node, Expression expression)
     {
         where.put(node, expression);
     }
@@ -164,22 +218,22 @@ public class Analysis
         return where.get(node);
     }
 
-    public void setOrderByExpressions(Node node, List<FieldOrExpression> items)
+    public void setOrderByExpressions(Node node, List<Expression> items)
     {
         orderByExpressions.put(node, items);
     }
 
-    public List<FieldOrExpression> getOrderByExpressions(Node node)
+    public List<Expression> getOrderByExpressions(Node node)
     {
         return orderByExpressions.get(node);
     }
 
-    public void setOutputExpressions(Node node, List<FieldOrExpression> expressions)
+    public void setOutputExpressions(Node node, List<Expression> expressions)
     {
         outputExpressions.put(node, expressions);
     }
 
-    public List<FieldOrExpression> getOutputExpressions(Node node)
+    public List<Expression> getOutputExpressions(Node node)
     {
         return outputExpressions.get(node);
     }
@@ -199,34 +253,35 @@ public class Analysis
         return joins.get(join);
     }
 
-    public void addInPredicates(Query node, Set<InPredicate> inPredicates)
+    public void recordSubqueries(Node node, ExpressionAnalysis expressionAnalysis)
     {
-        this.inPredicates.putAll(node, inPredicates);
+        this.inPredicatesSubqueries.putAll(node, expressionAnalysis.getSubqueryInPredicates());
+        this.scalarSubqueries.putAll(node, expressionAnalysis.getScalarSubqueries());
+        this.existsSubqueries.putAll(node, expressionAnalysis.getExistsSubqueries());
     }
 
-    public void addInPredicates(QuerySpecification node, Set<InPredicate> inPredicates)
+    public List<InPredicate> getInPredicateSubqueries(Node node)
     {
-        this.inPredicates.putAll(node, inPredicates);
+        if (inPredicatesSubqueries.containsKey(node)) {
+            return inPredicatesSubqueries.get(node);
+        }
+        return ImmutableList.of();
     }
 
-    public Set<InPredicate> getInPredicates(Query node)
+    public List<SubqueryExpression> getScalarSubqueries(Node node)
     {
-        return inPredicates.get(node);
+        if (scalarSubqueries.containsKey(node)) {
+            return scalarSubqueries.get(node);
+        }
+        return ImmutableList.of();
     }
 
-    public Set<InPredicate> getInPredicates(QuerySpecification node)
+    public List<ExistsPredicate> getExistsSubqueries(Node node)
     {
-        return inPredicates.get(node);
-    }
-
-    public void addJoinInPredicates(Join node, JoinInPredicates joinInPredicates)
-    {
-        this.joinInPredicates.put(node, joinInPredicates);
-    }
-
-    public JoinInPredicates getJoinInPredicates(Join node)
-    {
-        return joinInPredicates.get(node);
+        if (existsSubqueries.containsKey(node)) {
+            return existsSubqueries.get(node);
+        }
+        return ImmutableList.of();
     }
 
     public void setWindowFunctions(QuerySpecification node, List<FunctionCall> functions)
@@ -244,25 +299,88 @@ public class Analysis
         return windowFunctions.get(query);
     }
 
-    public void setOutputDescriptor(TupleDescriptor descriptor)
+    public void addColumnReferences(Set<Expression> columnReferences)
     {
-        outputDescriptor = descriptor;
+        this.columnReferences.addAll(columnReferences);
     }
 
-    public TupleDescriptor getOutputDescriptor()
+    public Scope getScope(Node node)
     {
-        return outputDescriptor;
+        return tryGetScope(node).orElseThrow(() -> new IllegalArgumentException(String.format("Analysis does not contain information for node: %s", node)));
     }
 
-    public void setOutputDescriptor(Node node, TupleDescriptor descriptor)
+    public Optional<Scope> tryGetScope(Node node)
     {
-        outputDescriptors.put(node, descriptor);
+        if (scopes.containsKey(node)) {
+            return Optional.of(scopes.get(node));
+        }
+
+        if (root == null) {
+            return Optional.empty();
+        }
+
+        GetScopeVisitor visitor = new GetScopeVisitor(scopes, node);
+        visitor.process(root, null);
+        return visitor.getResult();
     }
 
-    public TupleDescriptor getOutputDescriptor(Node node)
+    public Scope getRootScope()
     {
-        Preconditions.checkState(outputDescriptors.containsKey(node), "Output descriptor missing for %s. Broken analysis?", node);
-        return outputDescriptors.get(node);
+        return getScope(root);
+    }
+
+    private static class GetScopeVisitor
+            extends DefaultTraversalVisitor<Void, Scope>
+    {
+        private final IdentityHashMap<Node, Scope> scopes;
+        private final Node node;
+        private Scope result;
+
+        public GetScopeVisitor(IdentityHashMap<Node, Scope> scopes, Node node)
+        {
+            this.scopes = requireNonNull(scopes, "scopes is null");
+            this.node = requireNonNull(node, "node is null");
+        }
+
+        @Override
+        public Void process(Node current, @Nullable Scope candidate)
+        {
+            if (result != null) {
+                return null;
+            }
+
+            if (scopes.containsKey(current)) {
+                candidate = scopes.get(current);
+            }
+            if (node == current) {
+                result = candidate;
+            }
+            else {
+                super.process(current, candidate);
+            }
+
+            return null;
+        }
+
+        public Optional<Scope> getResult()
+        {
+            return Optional.ofNullable(result);
+        }
+    }
+
+    public void setScope(Node node, Scope scope)
+    {
+        scopes.put(node, scope);
+    }
+
+    public RelationType getOutputDescriptor()
+    {
+        return getOutputDescriptor(root);
+    }
+
+    public RelationType getOutputDescriptor(Node node)
+    {
+        return getScope(node).getRelationType();
     }
 
     public TableHandle getTableHandle(Table table)
@@ -275,14 +393,19 @@ public class Analysis
         tables.put(table, handle);
     }
 
-    public FunctionInfo getFunctionInfo(FunctionCall function)
+    public Signature getFunctionSignature(FunctionCall function)
     {
-        return functionInfo.get(function);
+        return functionSignature.get(function);
     }
 
-    public void addFunctionInfos(IdentityHashMap<FunctionCall, FunctionInfo> infos)
+    public void addFunctionSignatures(IdentityHashMap<FunctionCall, Signature> infos)
     {
-        functionInfo.putAll(infos);
+        functionSignature.putAll(infos);
+    }
+
+    public Set<Expression> getColumnReferences()
+    {
+        return ImmutableSet.copyOf(columnReferences);
     }
 
     public void addTypes(IdentityHashMap<Expression, Type> types)
@@ -290,19 +413,18 @@ public class Analysis
         this.types.putAll(types);
     }
 
-    public void addRowFieldReferences(IdentityHashMap<Expression, Boolean> rowFieldReferences)
-    {
-        this.rowFieldReferences.putAll(rowFieldReferences);
-    }
-
-    public void addCoercion(Expression expression, Type type)
+    public void addCoercion(Expression expression, Type type, boolean isTypeOnlyCoercion)
     {
         this.coercions.put(expression, type);
+        if (isTypeOnlyCoercion) {
+            this.typeOnlyCoercions.add(expression);
+        }
     }
 
-    public void addCoercions(IdentityHashMap<Expression, Type> coercions)
+    public void addCoercions(IdentityHashMap<Expression, Type> coercions, Set<Expression> typeOnlyCoercions)
     {
         this.coercions.putAll(coercions);
+        this.typeOnlyCoercions.addAll(typeOnlyCoercions);
     }
 
     public Expression getHaving(QuerySpecification query)
@@ -320,24 +442,34 @@ public class Analysis
         return columns.get(field);
     }
 
-    public void setCreateTableDestination(QualifiedTableName destination)
+    public void setCreateTableDestination(QualifiedObjectName destination)
     {
         this.createTableDestination = Optional.of(destination);
     }
 
-    public Optional<QualifiedTableName> getCreateTableDestination()
+    public Optional<QualifiedObjectName> getCreateTableDestination()
     {
         return createTableDestination;
     }
 
-    public void setInsertTarget(TableHandle target)
+    public void setCreateTableProperties(Map<String, Expression> createTableProperties)
     {
-        this.insertTarget = Optional.of(target);
+        this.createTableProperties = createTableProperties;
     }
 
-    public Optional<TableHandle> getInsertTarget()
+    public Map<String, Expression> getCreateTableProperties()
     {
-        return insertTarget;
+        return createTableProperties;
+    }
+
+    public void setInsert(Insert insert)
+    {
+        this.insert = Optional.of(insert);
+    }
+
+    public Optional<Insert> getInsert()
+    {
+        return insert;
     }
 
     public Query getNamedQuery(Table table)
@@ -347,8 +479,8 @@ public class Analysis
 
     public void registerNamedQuery(Table tableReference, Query query)
     {
-        checkNotNull(tableReference, "tableReference is null");
-        checkNotNull(query, "query is null");
+        requireNonNull(tableReference, "tableReference is null");
+        requireNonNull(query, "query is null");
 
         namedQueries.put(tableReference, query);
     }
@@ -364,45 +496,37 @@ public class Analysis
         return sampleRatios.get(relation);
     }
 
-    public static class JoinInPredicates
+    public List<Expression> getParameters()
     {
-        private final Set<InPredicate> leftInPredicates;
-        private final Set<InPredicate> rightInPredicates;
+        return parameters;
+    }
 
-        public JoinInPredicates(Set<InPredicate> leftInPredicates, Set<InPredicate> rightInPredicates)
+    public boolean isDescribe()
+    {
+        return isDescribe;
+    }
+
+    @Immutable
+    public static final class Insert
+    {
+        private final TableHandle target;
+        private final List<ColumnHandle> columns;
+
+        public Insert(TableHandle target, List<ColumnHandle> columns)
         {
-            this.leftInPredicates = ImmutableSet.copyOf(checkNotNull(leftInPredicates, "leftInPredicates is null"));
-            this.rightInPredicates = ImmutableSet.copyOf(checkNotNull(rightInPredicates, "rightInPredicates is null"));
+            this.target = requireNonNull(target, "target is null");
+            this.columns = requireNonNull(columns, "columns is null");
+            checkArgument(columns.size() > 0, "No columns given to insert");
         }
 
-        public Set<InPredicate> getLeftInPredicates()
+        public List<ColumnHandle> getColumns()
         {
-            return leftInPredicates;
+            return columns;
         }
 
-        public Set<InPredicate> getRightInPredicates()
+        public TableHandle getTarget()
         {
-            return rightInPredicates;
-        }
-
-        @Override
-        public int hashCode()
-        {
-            return Objects.hash(leftInPredicates, rightInPredicates);
-        }
-
-        @Override
-        public boolean equals(Object obj)
-        {
-            if (this == obj) {
-                return true;
-            }
-            if (obj == null || getClass() != obj.getClass()) {
-                return false;
-            }
-            final JoinInPredicates other = (JoinInPredicates) obj;
-            return Objects.equals(this.leftInPredicates, other.leftInPredicates) &&
-                    Objects.equals(this.rightInPredicates, other.rightInPredicates);
+            return target;
         }
     }
 }

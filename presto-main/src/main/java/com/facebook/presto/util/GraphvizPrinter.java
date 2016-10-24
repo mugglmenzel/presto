@@ -13,13 +13,18 @@
  */
 package com.facebook.presto.util;
 
+import com.facebook.presto.sql.planner.Partitioning.ArgumentBinding;
 import com.facebook.presto.sql.planner.PlanFragment;
 import com.facebook.presto.sql.planner.SubPlan;
 import com.facebook.presto.sql.planner.Symbol;
 import com.facebook.presto.sql.planner.plan.AggregationNode;
+import com.facebook.presto.sql.planner.plan.ApplyNode;
+import com.facebook.presto.sql.planner.plan.AssignUniqueId;
 import com.facebook.presto.sql.planner.plan.DistinctLimitNode;
+import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
 import com.facebook.presto.sql.planner.plan.FilterNode;
+import com.facebook.presto.sql.planner.plan.GroupIdNode;
 import com.facebook.presto.sql.planner.plan.IndexJoinNode;
 import com.facebook.presto.sql.planner.plan.IndexSourceNode;
 import com.facebook.presto.sql.planner.plan.JoinNode;
@@ -35,7 +40,7 @@ import com.facebook.presto.sql.planner.plan.RowNumberNode;
 import com.facebook.presto.sql.planner.plan.SampleNode;
 import com.facebook.presto.sql.planner.plan.SemiJoinNode;
 import com.facebook.presto.sql.planner.plan.SortNode;
-import com.facebook.presto.sql.planner.plan.TableCommitNode;
+import com.facebook.presto.sql.planner.plan.TableFinishNode;
 import com.facebook.presto.sql.planner.plan.TableScanNode;
 import com.facebook.presto.sql.planner.plan.TableWriterNode;
 import com.facebook.presto.sql.planner.plan.TopNNode;
@@ -47,7 +52,7 @@ import com.facebook.presto.sql.planner.plan.WindowNode;
 import com.facebook.presto.sql.tree.ComparisonExpression;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.FunctionCall;
-import com.facebook.presto.sql.tree.QualifiedNameReference;
+import com.facebook.presto.sql.tree.SymbolReference;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -59,8 +64,10 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import static com.facebook.presto.sql.planner.plan.ExchangeNode.Type.REPARTITION;
+import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
 import static com.google.common.collect.Maps.immutableEnumMap;
 import static java.lang.String.format;
 
@@ -85,7 +92,7 @@ public final class GraphvizPrinter
         SAMPLE,
         MARK_DISTINCT,
         TABLE_WRITER,
-        TABLE_COMMIT,
+        TABLE_FINISH,
         INDEX_SOURCE,
         UNNEST
     }
@@ -107,7 +114,7 @@ public final class GraphvizPrinter
             .put(NodeType.UNION, "turquoise4")
             .put(NodeType.MARK_DISTINCT, "violet")
             .put(NodeType.TABLE_WRITER, "cyan")
-            .put(NodeType.TABLE_COMMIT, "hotpink")
+            .put(NodeType.TABLE_FINISH, "hotpink")
             .put(NodeType.INDEX_SOURCE, "dodgerblue3")
             .put(NodeType.UNNEST, "crimson")
             .put(NodeType.SAMPLE, "goldenrod4")
@@ -175,7 +182,7 @@ public final class GraphvizPrinter
                 .append(" {")
                 .append('\n');
 
-        output.append(format("label = \"%s\"", fragment.getDistribution()))
+        output.append(format("label = \"%s\"", fragment.getPartitioning()))
                 .append('\n');
 
         PlanNode plan = fragment.getRoot();
@@ -216,16 +223,16 @@ public final class GraphvizPrinter
         }
 
         @Override
-        public Void visitTableCommit(TableCommitNode node, Void context)
+        public Void visitTableFinish(TableFinishNode node, Void context)
         {
-            printNode(node, format("TableCommit[%s]", Joiner.on(", ").join(node.getOutputSymbols())), NODE_COLORS.get(NodeType.TABLE_COMMIT));
+            printNode(node, format("TableFinish[%s]", Joiner.on(", ").join(node.getOutputSymbols())), NODE_COLORS.get(NodeType.TABLE_FINISH));
             return node.getSource().accept(this, context);
         }
 
         @Override
         public Void visitSample(SampleNode node, Void context)
         {
-            printNode(node, format("Sample[type=%s, ratio=%f, rescaled=%s]", node.getSampleType(), node.getSampleRatio(), node.isRescaled()), NODE_COLORS.get(NodeType.SAMPLE));
+            printNode(node, format("Sample[type=%s, ratio=%f]", node.getSampleType(), node.getSampleRatio()), NODE_COLORS.get(NodeType.SAMPLE));
             return node.getSource().accept(this, context);
         }
 
@@ -292,9 +299,11 @@ public final class GraphvizPrinter
         @Override
         public Void visitExchange(ExchangeNode node, Void context)
         {
-            List<Symbol> symbols = node.getOutputSymbols();
+            List<ArgumentBinding> symbols = node.getOutputSymbols().stream()
+                    .map(ArgumentBinding::columnBinding)
+                    .collect(toImmutableList());
             if (node.getType() == REPARTITION) {
-                symbols = node.getPartitionKeys();
+                symbols = node.getPartitioningScheme().getPartitioning().getArguments();
             }
             String columns = Joiner.on(", ").join(symbols);
             printNode(node, format("ExchangeNode[%s]", node.getType()), columns, NODE_COLORS.get(NodeType.EXCHANGE));
@@ -321,6 +330,17 @@ public final class GraphvizPrinter
         }
 
         @Override
+        public Void visitGroupId(GroupIdNode node, Void context)
+        {
+            List<String> groupingSets = node.getGroupingSets().stream()
+                    .map(groupingSet -> "(" + Joiner.on(", ").join(groupingSet) + ")")
+                    .collect(Collectors.toList());
+
+            printNode(node, "GroupId", Joiner.on(", ").join(groupingSets), NODE_COLORS.get(NodeType.AGGREGATE));
+            return node.getSource().accept(this, context);
+        }
+
+        @Override
         public Void visitFilter(FilterNode node, Void context)
         {
             String expression = node.getPredicate().toString();
@@ -333,8 +353,8 @@ public final class GraphvizPrinter
         {
             StringBuilder builder = new StringBuilder();
             for (Map.Entry<Symbol, Expression> entry : node.getAssignments().entrySet()) {
-                if ((entry.getValue() instanceof QualifiedNameReference) &&
-                        ((QualifiedNameReference) entry.getValue()).getName().equals(entry.getKey().toQualifiedName())) {
+                if ((entry.getValue() instanceof SymbolReference) &&
+                        ((SymbolReference) entry.getValue()).getName().equals(entry.getKey().getName())) {
                     // skip identity assignments
                     continue;
                 }
@@ -402,13 +422,20 @@ public final class GraphvizPrinter
         }
 
         @Override
+        public Void visitEnforceSingleRow(EnforceSingleRowNode node, Void context)
+        {
+            printNode(node, "Scalar", NODE_COLORS.get(NodeType.PROJECT));
+            return node.getSource().accept(this, context);
+        }
+
+        @Override
         public Void visitJoin(JoinNode node, Void context)
         {
             List<Expression> joinExpressions = new ArrayList<>();
             for (JoinNode.EquiJoinClause clause : node.getCriteria()) {
                 joinExpressions.add(new ComparisonExpression(ComparisonExpression.Type.EQUAL,
-                        new QualifiedNameReference(clause.getLeft().toQualifiedName()),
-                        new QualifiedNameReference(clause.getRight().toQualifiedName())));
+                        clause.getLeft().toSymbolReference(),
+                        clause.getRight().toSymbolReference()));
             }
 
             String criteria = Joiner.on(" AND ").join(joinExpressions);
@@ -432,6 +459,27 @@ public final class GraphvizPrinter
         }
 
         @Override
+        public Void visitApply(ApplyNode node, Void context)
+        {
+            String parameters = Joiner.on(",").join(node.getCorrelation());
+            printNode(node, "Apply", parameters, NODE_COLORS.get(NodeType.JOIN));
+
+            node.getInput().accept(this, context);
+            node.getSubquery().accept(this, context);
+
+            return null;
+        }
+
+        @Override
+        public Void visitAssignUniqueId(AssignUniqueId node, Void context)
+        {
+            printNode(node, "AssignUniqueId", NODE_COLORS.get(NodeType.PROJECT));
+            node.getSource().accept(this, context);
+
+            return null;
+        }
+
+        @Override
         public Void visitIndexSource(IndexSourceNode node, Void context)
         {
             printNode(node, format("IndexSource[%s]", node.getIndexHandle()), NODE_COLORS.get(NodeType.INDEX_SOURCE));
@@ -444,8 +492,8 @@ public final class GraphvizPrinter
             List<Expression> joinExpressions = new ArrayList<>();
             for (IndexJoinNode.EquiJoinClause clause : node.getCriteria()) {
                 joinExpressions.add(new ComparisonExpression(ComparisonExpression.Type.EQUAL,
-                        new QualifiedNameReference(clause.getProbe().toQualifiedName()),
-                        new QualifiedNameReference(clause.getIndex().toQualifiedName())));
+                        clause.getProbe().toSymbolReference(),
+                        clause.getIndex().toSymbolReference()));
             }
 
             String criteria = Joiner.on(" AND ").join(joinExpressions);

@@ -14,22 +14,18 @@
 package com.facebook.presto.operator.window;
 
 import com.facebook.presto.spi.block.BlockBuilder;
-import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.spi.function.RankingWindowFunction;
+import com.facebook.presto.spi.function.WindowFunctionSignature;
 
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
 
+@WindowFunctionSignature(name = "percent_rank", returnType = "double")
 public class PercentRankFunction
         extends RankingWindowFunction
 {
     private long totalCount;
     private long rank;
     private long count;
-
-    @Override
-    public Type getType()
-    {
-        return DOUBLE;
-    }
 
     @Override
     public void reset()

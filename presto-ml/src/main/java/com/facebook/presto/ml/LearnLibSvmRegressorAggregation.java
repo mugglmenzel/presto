@@ -14,12 +14,13 @@
 package com.facebook.presto.ml;
 
 import com.facebook.presto.ml.type.RegressorType;
-import com.facebook.presto.operator.aggregation.AggregationFunction;
-import com.facebook.presto.operator.aggregation.CombineFunction;
-import com.facebook.presto.operator.aggregation.InputFunction;
-import com.facebook.presto.operator.aggregation.OutputFunction;
+import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
-import com.facebook.presto.type.SqlType;
+import com.facebook.presto.spi.function.AggregationFunction;
+import com.facebook.presto.spi.function.CombineFunction;
+import com.facebook.presto.spi.function.InputFunction;
+import com.facebook.presto.spi.function.OutputFunction;
+import com.facebook.presto.spi.function.SqlType;
 import io.airlift.slice.Slice;
 
 import static com.facebook.presto.spi.type.StandardTypes.BIGINT;
@@ -35,7 +36,7 @@ public final class LearnLibSvmRegressorAggregation
     public static void input(
             LearnState state,
             @SqlType(BIGINT) long label,
-            @SqlType("map<bigint,double>") Slice features,
+            @SqlType("map(bigint,double)") Block features,
             @SqlType(VARCHAR) Slice parameters)
     {
         input(state, (double) label, features, parameters);
@@ -45,7 +46,7 @@ public final class LearnLibSvmRegressorAggregation
     public static void input(
             LearnState state,
             @SqlType(DOUBLE) double label,
-            @SqlType("map<bigint,double>") Slice features,
+            @SqlType("map(bigint,double)") Block features,
             @SqlType(VARCHAR) Slice parameters)
     {
         state.getLabels().add(label);

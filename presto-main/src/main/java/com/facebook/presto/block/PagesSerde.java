@@ -15,7 +15,6 @@ package com.facebook.presto.block;
 
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.block.Block;
-import com.facebook.presto.spi.block.BlockEncoding;
 import com.facebook.presto.spi.block.BlockEncodingSerde;
 import com.google.common.collect.AbstractIterator;
 import io.airlift.slice.SliceInput;
@@ -23,8 +22,10 @@ import io.airlift.slice.SliceOutput;
 
 import java.util.Iterator;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static com.facebook.presto.block.BlockSerdeUtil.readBlock;
+import static com.facebook.presto.block.BlockSerdeUtil.writeBlock;
 import static java.util.Arrays.asList;
+import static java.util.Objects.requireNonNull;
 
 // layout is:
 //   - position count (int)
@@ -36,22 +37,26 @@ public final class PagesSerde
 {
     private PagesSerde() {}
 
-    public static void writePages(BlockEncodingSerde blockEncodingSerde, SliceOutput sliceOutput, Page... pages)
+    public static long writePages(BlockEncodingSerde blockEncodingSerde, SliceOutput sliceOutput, Page... pages)
     {
-        writePages(blockEncodingSerde, sliceOutput, asList(pages).iterator());
+        return writePages(blockEncodingSerde, sliceOutput, asList(pages).iterator());
     }
 
-    public static void writePages(BlockEncodingSerde blockEncodingSerde, SliceOutput sliceOutput, Iterable<Page> pages)
+    public static long writePages(BlockEncodingSerde blockEncodingSerde, SliceOutput sliceOutput, Iterable<Page> pages)
     {
-        writePages(blockEncodingSerde, sliceOutput, pages.iterator());
+        return writePages(blockEncodingSerde, sliceOutput, pages.iterator());
     }
 
-    public static void writePages(BlockEncodingSerde blockEncodingSerde, SliceOutput sliceOutput, Iterator<Page> pages)
+    public static long writePages(BlockEncodingSerde blockEncodingSerde, SliceOutput sliceOutput, Iterator<Page> pages)
     {
+        long size = 0;
         PagesWriter pagesWriter = new PagesWriter(blockEncodingSerde, sliceOutput);
         while (pages.hasNext()) {
-            pagesWriter.append(pages.next());
+            Page page = pages.next();
+            pagesWriter.append(page);
+            size += page.getSizeInBytes();
         }
+        return size;
     }
 
     public static Iterator<Page> readPages(BlockEncodingSerde blockEncodingSerde, SliceInput sliceInput)
@@ -66,22 +71,20 @@ public final class PagesSerde
 
         private PagesWriter(BlockEncodingSerde serde, SliceOutput output)
         {
-            this.serde = checkNotNull(serde, "serde is null");
-            this.output = checkNotNull(output, "output is null");
+            this.serde = requireNonNull(serde, "serde is null");
+            this.output = requireNonNull(output, "output is null");
         }
 
         public PagesWriter append(Page page)
         {
-            checkNotNull(page, "page is null");
+            requireNonNull(page, "page is null");
 
             Block[] blocks = page.getBlocks();
 
             output.writeInt(page.getPositionCount());
             output.writeInt(blocks.length);
             for (int i = 0; i < blocks.length; i++) {
-                BlockEncoding encoding = blocks[i].getEncoding();
-                serde.writeBlockEncoding(output, encoding);
-                encoding.writeBlock(output, blocks[i]);
+                writeBlock(serde, output, blocks[i]);
             }
 
             return this;
@@ -96,8 +99,8 @@ public final class PagesSerde
 
         public PagesReader(BlockEncodingSerde serde, SliceInput input)
         {
-            this.serde = checkNotNull(serde, "serde is null");
-            this.input = checkNotNull(input, "input is null");
+            this.serde = requireNonNull(serde, "serde is null");
+            this.input = requireNonNull(input, "input is null");
         }
 
         @Override
@@ -111,8 +114,7 @@ public final class PagesSerde
             int numberOfBlocks = input.readInt();
             Block[] blocks = new Block[numberOfBlocks];
             for (int i = 0; i < blocks.length; i++) {
-                BlockEncoding encoding = serde.readBlockEncoding(input);
-                blocks[i] = encoding.readBlock(input);
+                blocks[i] = readBlock(serde, input);
             }
 
             @SuppressWarnings("UnnecessaryLocalVariable")

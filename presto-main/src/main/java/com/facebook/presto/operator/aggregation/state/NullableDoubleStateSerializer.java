@@ -15,6 +15,7 @@ package com.facebook.presto.operator.aggregation.state;
 
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
+import com.facebook.presto.spi.function.AccumulatorStateSerializer;
 import com.facebook.presto.spi.type.Type;
 
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
@@ -22,22 +23,10 @@ import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
 public class NullableDoubleStateSerializer
         implements AccumulatorStateSerializer<NullableDoubleState>
 {
-    private final Type type;
-
-    public NullableDoubleStateSerializer()
-    {
-        this(DOUBLE);
-    }
-
-    public NullableDoubleStateSerializer(Type type)
-    {
-        this.type = type;
-    }
-
     @Override
     public Type getSerializedType()
     {
-        return type;
+        return DOUBLE;
     }
 
     @Override
@@ -47,16 +36,14 @@ public class NullableDoubleStateSerializer
             out.appendNull();
         }
         else {
-            type.writeDouble(out, state.getDouble());
+            DOUBLE.writeDouble(out, state.getDouble());
         }
     }
 
     @Override
     public void deserialize(Block block, int index, NullableDoubleState state)
     {
-        state.setNull(block.isNull(index));
-        if (!state.isNull()) {
-            state.setDouble(type.getDouble(block, index));
-        }
+        state.setNull(false);
+        state.setDouble(DOUBLE.getDouble(block, index));
     }
 }

@@ -18,7 +18,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 public class Query
         extends Statement
@@ -27,26 +27,43 @@ public class Query
     private final QueryBody queryBody;
     private final List<SortItem> orderBy;
     private final Optional<String> limit;
-    private final Optional<Approximate> approximate;
 
     public Query(
             Optional<With> with,
             QueryBody queryBody,
             List<SortItem> orderBy,
-            Optional<String> limit,
-            Optional<Approximate> approximate)
+            Optional<String> limit)
     {
-        checkNotNull(with, "with is null");
-        checkNotNull(queryBody, "queryBody is null");
-        checkNotNull(orderBy, "orderBy is null");
-        checkNotNull(limit, "limit is null");
-        checkNotNull(approximate, "approximate is null");
+        this(Optional.empty(), with, queryBody, orderBy, limit);
+    }
+
+    public Query(
+            NodeLocation location,
+            Optional<With> with,
+            QueryBody queryBody,
+            List<SortItem> orderBy,
+            Optional<String> limit)
+    {
+        this(Optional.of(location), with, queryBody, orderBy, limit);
+    }
+
+    private Query(
+            Optional<NodeLocation> location,
+            Optional<With> with,
+            QueryBody queryBody,
+            List<SortItem> orderBy,
+            Optional<String> limit)
+    {
+        super(location);
+        requireNonNull(with, "with is null");
+        requireNonNull(queryBody, "queryBody is null");
+        requireNonNull(orderBy, "orderBy is null");
+        requireNonNull(limit, "limit is null");
 
         this.with = with;
         this.queryBody = queryBody;
         this.orderBy = orderBy;
         this.limit = limit;
-        this.approximate = approximate;
     }
 
     public Optional<With> getWith()
@@ -69,11 +86,6 @@ public class Query
         return limit;
     }
 
-    public Optional<Approximate> getApproximate()
-    {
-        return approximate;
-    }
-
     @Override
     public <R, C> R accept(AstVisitor<R, C> visitor, C context)
     {
@@ -88,7 +100,6 @@ public class Query
                 .add("queryBody", queryBody)
                 .add("orderBy", orderBy)
                 .add("limit", limit.orElse(null))
-                .add("approximate", approximate.orElse(null))
                 .omitNullValues()
                 .toString();
     }
@@ -106,13 +117,12 @@ public class Query
         return Objects.equals(with, o.with) &&
                 Objects.equals(queryBody, o.queryBody) &&
                 Objects.equals(orderBy, o.orderBy) &&
-                Objects.equals(limit, o.limit) &&
-                Objects.equals(approximate, o.approximate);
+                Objects.equals(limit, o.limit);
     }
 
     @Override
     public int hashCode()
     {
-        return Objects.hash(with, queryBody, orderBy, limit, approximate);
+        return Objects.hash(with, queryBody, orderBy, limit);
     }
 }

@@ -16,14 +16,20 @@ package com.facebook.presto.execution;
 import com.facebook.presto.Session;
 import com.facebook.presto.execution.StateMachine.StateChangeListener;
 import com.facebook.presto.memory.VersionedMemoryPoolId;
+import com.facebook.presto.spi.QueryId;
+import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.Statement;
 import io.airlift.units.Duration;
+
+import java.util.List;
 
 public interface QueryExecution
 {
     QueryId getQueryId();
 
     QueryInfo getQueryInfo();
+
+    QueryState getState();
 
     Duration waitForStateChange(QueryState currentState, Duration maxWait)
             throws InterruptedException;
@@ -34,9 +40,15 @@ public interface QueryExecution
 
     long getTotalMemoryReservation();
 
+    Duration getTotalCpuTime();
+
+    Session getSession();
+
     void start();
 
     void fail(Throwable cause);
+
+    void cancelQuery();
 
     void cancelStage(StageId stageId);
 
@@ -47,8 +59,10 @@ public interface QueryExecution
 
     void addStateChangeListener(StateChangeListener<QueryState> stateChangeListener);
 
+    void addFinalQueryInfoListener(StateChangeListener<QueryInfo> stateChangeListener);
+
     interface QueryExecutionFactory<T extends QueryExecution>
     {
-        T createQueryExecution(QueryId queryId, String query, Session session, Statement statement);
+        T createQueryExecution(QueryId queryId, String query, Session session, Statement statement, List<Expression> parameters);
     }
 }

@@ -14,20 +14,16 @@
 package com.facebook.presto.operator.window;
 
 import com.facebook.presto.spi.block.BlockBuilder;
-import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.spi.function.RankingWindowFunction;
+import com.facebook.presto.spi.function.WindowFunctionSignature;
 
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 
+@WindowFunctionSignature(name = "dense_rank", returnType = "bigint")
 public class DenseRankFunction
         extends RankingWindowFunction
 {
     private long rank;
-
-    @Override
-    public Type getType()
-    {
-        return BIGINT;
-    }
 
     @Override
     public void reset()

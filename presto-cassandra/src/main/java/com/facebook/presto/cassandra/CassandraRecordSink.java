@@ -16,24 +16,23 @@ package com.facebook.presto.cassandra;
 import com.facebook.presto.spi.RecordSink;
 import com.facebook.presto.spi.type.Type;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import io.airlift.slice.Slice;
 import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.ISODateTimeFormat;
 
 import javax.inject.Inject;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-import static com.facebook.presto.cassandra.CassandraColumnHandle.SAMPLE_WEIGHT_COLUMN_NAME;
 import static com.facebook.presto.spi.type.DateType.DATE;
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static com.facebook.presto.spi.type.IntegerType.INTEGER;
 import static com.google.common.base.Preconditions.checkState;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Objects.requireNonNull;
 
 public class CassandraRecordSink
         implements RecordSink
@@ -42,7 +41,6 @@ public class CassandraRecordSink
 
     private final int fieldCount;
     private final CassandraSession cassandraSession;
-    private final boolean sampled;
     private final String insertQuery;
     private final List<Object> values;
     private final String schemaName;
@@ -52,26 +50,17 @@ public class CassandraRecordSink
     @Inject
     public CassandraRecordSink(CassandraOutputTableHandle handle, CassandraSession cassandraSession)
     {
-        this.fieldCount = checkNotNull(handle, "handle is null").getColumnNames().size();
-        this.cassandraSession = checkNotNull(cassandraSession, "cassandraSession is null");
-        this.sampled = handle.isSampled();
+        this.fieldCount = requireNonNull(handle, "handle is null").getColumnNames().size();
+        this.cassandraSession = requireNonNull(cassandraSession, "cassandraSession is null");
 
         schemaName = handle.getSchemaName();
         StringBuilder queryBuilder = new StringBuilder(String.format("INSERT INTO \"%s\".\"%s\"(", schemaName, handle.getTableName()));
         queryBuilder.append("id");
 
-        if (sampled) {
-            queryBuilder.append("," + SAMPLE_WEIGHT_COLUMN_NAME);
-        }
-
         for (String columnName : handle.getColumnNames()) {
             queryBuilder.append(",").append(columnName);
         }
         queryBuilder.append(") VALUES (?");
-
-        if (sampled) {
-            queryBuilder.append(",?");
-        }
 
         for (int i = 0; i < handle.getColumnNames().size(); i++) {
             queryBuilder.append(",?");
@@ -79,26 +68,19 @@ public class CassandraRecordSink
         queryBuilder.append(")");
 
         insertQuery = queryBuilder.toString();
-        values = Lists.newArrayList();
+        values = new ArrayList<>();
 
         columnTypes = handle.getColumnTypes();
     }
 
     @Override
-    public void beginRecord(long sampleWeight)
+    public void beginRecord()
     {
         checkState(field == -1, "already in record");
 
         field = 0;
         values.clear();
         values.add(UUID.randomUUID());
-
-        if (sampled) {
-            values.add(sampleWeight);
-        }
-        else {
-            checkArgument(sampleWeight == 1, "Sample weight must be 1 when sampling is disabled");
-        }
     }
 
     @Override
@@ -128,6 +110,9 @@ public class CassandraRecordSink
         if (DATE.equals(columnTypes.get(field))) {
             append(DATE_FORMATTER.print(TimeUnit.DAYS.toMillis(value)));
         }
+        else if (INTEGER.equals(columnTypes.get(field))) {
+            append(((Number) value).intValue());
+        }
         else {
             append(value);
         }
@@ -143,6 +128,12 @@ public class CassandraRecordSink
     public void appendString(byte[] value)
     {
         append(new String(value, UTF_8));
+    }
+
+    @Override
+    public void appendObject(Object value)
+    {
+        throw new UnsupportedOperationException();
     }
 
     @Override

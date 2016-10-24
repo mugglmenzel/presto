@@ -15,6 +15,7 @@ package com.facebook.presto.raptor.storage;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Set;
 import java.util.UUID;
 
 public interface StorageService
@@ -22,15 +23,13 @@ public interface StorageService
     void start()
             throws IOException;
 
+    long getAvailableBytes();
+
     void createParents(File file);
 
     File getStorageFile(UUID shardUuid);
 
     File getStagingFile(UUID shardUuid);
 
-    File getBackupFile(UUID shardUuid);
-
-    boolean isBackupAvailable(UUID shardUuid);
-
-    boolean isBackupAvailable();
+    Set<UUID> getStorageShards();
 }

@@ -14,19 +14,15 @@
 package com.facebook.presto.operator.window;
 
 import com.facebook.presto.spi.block.BlockBuilder;
-import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.spi.function.RankingWindowFunction;
+import com.facebook.presto.spi.function.WindowFunctionSignature;
 
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 
+@WindowFunctionSignature(name = "row_number", returnType = "bigint")
 public class RowNumberFunction
         extends RankingWindowFunction
 {
-    @Override
-    public Type getType()
-    {
-        return BIGINT;
-    }
-
     @Override
     public void processRow(BlockBuilder output, boolean newPeerGroup, int peerGroupCount, int currentPosition)
     {

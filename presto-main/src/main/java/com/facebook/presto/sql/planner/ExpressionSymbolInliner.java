@@ -16,9 +16,11 @@ package com.facebook.presto.sql.planner;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.ExpressionRewriter;
 import com.facebook.presto.sql.tree.ExpressionTreeRewriter;
-import com.facebook.presto.sql.tree.QualifiedNameReference;
+import com.facebook.presto.sql.tree.SymbolReference;
 
 import java.util.Map;
+
+import static com.google.common.base.Preconditions.checkState;
 
 public class ExpressionSymbolInliner
         extends ExpressionRewriter<Void>
@@ -31,8 +33,10 @@ public class ExpressionSymbolInliner
     }
 
     @Override
-    public Expression rewriteQualifiedNameReference(QualifiedNameReference node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
+    public Expression rewriteSymbolReference(SymbolReference node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
     {
-        return mappings.get(Symbol.fromQualifiedName(node.getName()));
+        Expression expression = mappings.get(Symbol.from(node));
+        checkState(expression != null, "Cannot resolve symbol %s", node.getName());
+        return expression;
     }
 }

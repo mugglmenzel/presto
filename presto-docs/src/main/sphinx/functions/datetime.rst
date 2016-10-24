@@ -53,6 +53,14 @@ Date and Time Functions
     Returns the current time zone in the format defined by IANA
     (e.g., ``America/Los_Angeles``) or as fixed offset from UTC (e.g., ``+08:35``)
 
+.. function:: from_iso8601_timestamp(string) -> timestamp with time zone
+
+    Parses the ISO 8601 formatted ``string`` into a ``timestamp with time zone``.
+
+.. function:: from_iso8601_date(string) -> date
+
+    Parses the ISO 8601 formatted ``string`` into a ``date``.
+
 .. function:: from_unixtime(unixtime) -> timestamp
 
     Returns the UNIX timestamp ``unixtime`` as a timestamp.
@@ -73,6 +81,11 @@ Date and Time Functions
 .. function:: now() -> timestamp with time zone
 
     This is an alias for ``current_timestamp``.
+
+.. function:: to_iso8601(x) -> varchar
+
+    Formats ``x`` as an ISO 8601 string. ``x`` can be date, timestamp, or
+    timestamp with time zone.
 
 .. function:: to_unixtime(timestamp) -> double
 
@@ -154,7 +167,7 @@ Specifier Description
 ``%D``    Day of the month with English suffix (``0th``, ``1st``, ``2nd``, ``3rd``, ...)
 ``%d``    Day of the month, numeric (``00`` .. ``31``)
 ``%e``    Day of the month, numeric (``0`` .. ``31``)
-``%f``    Microseconds (``000000`` .. ``999999``)
+``%f``    Fraction of second (6 digits for printing: ``000000`` .. ``999000``; 1 - 9 digits for parsing: ``0`` .. ``999999999`` [#f]_)
 ``%H``    Hour (``00`` .. ``23``)
 ``%h``    Hour (``01`` .. ``12``)
 ``%I``    Hour (``01`` .. ``12``)
@@ -178,12 +191,15 @@ Specifier Description
 ``%X``    Year for the week where Sunday is the first day of the week, numeric, four digits; used with ``%V``
 ``%x``    Year for the week, where Monday is the first day of the week, numeric, four digits; used with ``%v``
 ``%Y``    Year, numeric, four digits
-``%y``    Year, numeric (two digits)
+``%y``    Year, numeric (two digits) [#y]_
 ``%%``    A literal ``%`` character
 ``%x``    ``x``, for any ``x`` not listed above
 ========= ===========
 
-.. warning:: The following specifiers are not currently supported: ``%D %U %u %V %X``
+.. [#f] Timestamp is truncated to milliseconds.
+.. [#y] When parsing, two-digit year format assumes range ``1970`` .. ``2069``, so "70" will result in year ``1970`` but "69" will produce ``2069``.
+
+.. warning:: The following specifiers are not currently supported: ``%D %U %u %V %w %X``
 
 .. function:: date_format(timestamp, format) -> varchar
 
@@ -197,9 +213,9 @@ Java Date Functions
 -------------------
 
 The functions in this section use a format string that is compatible with
-the Java `SimpleDateFormat`_ pattern format.
+JodaTime's `DateTimeFormat`_ pattern format.
 
-.. _SimpleDateFormat: http://docs.oracle.com/javase/7/docs/api/java/text/SimpleDateFormat.html
+.. _DateTimeFormat: http://joda-time.sourceforge.net/apidocs/org/joda/time/format/DateTimeFormat.html
 
 .. function:: format_datetime(timestamp, format) -> varchar
 

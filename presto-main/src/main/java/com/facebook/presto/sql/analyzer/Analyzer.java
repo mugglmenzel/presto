@@ -15,7 +15,9 @@ package com.facebook.presto.sql.analyzer;
 
 import com.facebook.presto.Session;
 import com.facebook.presto.metadata.Metadata;
+import com.facebook.presto.security.AccessControl;
 import com.facebook.presto.sql.parser.SqlParser;
+import com.facebook.presto.sql.rewrite.StatementRewrite;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.FunctionCall;
 import com.facebook.presto.sql.tree.Statement;
@@ -26,31 +28,43 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.CANNOT_HAVE_AGGREGATIONS_OR_WINDOWS;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 public class Analyzer
 {
     private final Metadata metadata;
     private final SqlParser sqlParser;
+    private final AccessControl accessControl;
     private final Session session;
     private final Optional<QueryExplainer> queryExplainer;
-    private final boolean experimentalSyntaxEnabled;
+    private final List<Expression> parameters;
 
-    public Analyzer(Session session, Metadata metadata, SqlParser sqlParser, Optional<QueryExplainer> queryExplainer, boolean experimentalSyntaxEnabled)
+    public Analyzer(Session session,
+            Metadata metadata,
+            SqlParser sqlParser,
+            AccessControl accessControl,
+            Optional<QueryExplainer> queryExplainer,
+            List<Expression> parameters)
     {
-        this.session = checkNotNull(session, "session is null");
-        this.metadata = checkNotNull(metadata, "metadata is null");
-        this.sqlParser = checkNotNull(sqlParser, "sqlParser is null");
-        this.queryExplainer = checkNotNull(queryExplainer, "query explainer is null");
-        this.experimentalSyntaxEnabled = experimentalSyntaxEnabled;
+        this.session = requireNonNull(session, "session is null");
+        this.metadata = requireNonNull(metadata, "metadata is null");
+        this.sqlParser = requireNonNull(sqlParser, "sqlParser is null");
+        this.accessControl = requireNonNull(accessControl, "accessControl is null");
+        this.queryExplainer = requireNonNull(queryExplainer, "query explainer is null");
+        this.parameters = parameters;
     }
 
     public Analysis analyze(Statement statement)
     {
-        Analysis analysis = new Analysis();
-        StatementAnalyzer analyzer = new StatementAnalyzer(analysis, metadata, sqlParser, session, experimentalSyntaxEnabled, queryExplainer);
-        TupleDescriptor outputDescriptor = analyzer.process(statement, new AnalysisContext());
-        analysis.setOutputDescriptor(outputDescriptor);
+        return analyze(statement, false);
+    }
+
+    public Analysis analyze(Statement statement, boolean isDescribe)
+    {
+        Statement rewrittenStatement = StatementRewrite.rewrite(session, metadata, sqlParser, queryExplainer, statement, parameters, accessControl);
+        Analysis analysis = new Analysis(rewrittenStatement, parameters, isDescribe);
+        StatementAnalyzer analyzer = new StatementAnalyzer(analysis, metadata, sqlParser, accessControl, session);
+        analyzer.process(rewrittenStatement, Scope.builder().markQueryBoundary().build());
         return analysis;
     }
 

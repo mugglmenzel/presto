@@ -16,6 +16,8 @@ package com.facebook.presto.orc.stream;
 import com.facebook.presto.orc.OrcCorruptionException;
 import com.facebook.presto.orc.checkpoint.LongStreamCheckpoint;
 import com.facebook.presto.orc.checkpoint.LongStreamV2Checkpoint;
+import com.facebook.presto.spi.block.BlockBuilder;
+import com.facebook.presto.spi.type.Type;
 import com.google.common.primitives.Ints;
 
 import java.io.IOException;
@@ -37,6 +39,7 @@ public class LongStreamV2
         SHORT_REPEAT, DIRECT, PATCHED_BASE, DELTA
     }
 
+    private final LongBitPacker packer = new LongBitPacker();
     private final OrcInputStream input;
     private final boolean signed;
     private final long[] literals = new long[MAX_LITERAL_SIZE];
@@ -122,7 +125,7 @@ public class LongStreamV2
             // write the unpacked values, add it to previous value and store final
             // value to result buffer. if the delta base value is negative then it
             // is a decreasing sequence else an increasing sequence
-            readBitPackedLongs(literals, numLiterals, length, fixedBits, input);
+            packer.unpack(literals, numLiterals, length, fixedBits, input);
             while (length > 0) {
                 if (deltaBase < 0) {
                     literals[numLiterals] = prevVal - literals[numLiterals];
@@ -179,7 +182,7 @@ public class LongStreamV2
 
         // unpack the data blob
         long[] unpacked = new long[length];
-        readBitPackedLongs(unpacked, 0, length, fb, input);
+        packer.unpack(unpacked, 0, length, fb, input);
 
         // unpack the patch blob
         long[] unpackedPatch = new long[patchListLength];
@@ -189,7 +192,7 @@ public class LongStreamV2
         }
 
         int bitSize = LongDecode.getClosestFixedBits(patchWidth + patchGapWidth);
-        readBitPackedLongs(unpackedPatch, 0, patchListLength, bitSize, input);
+        packer.unpack(unpackedPatch, 0, patchListLength, bitSize, input);
 
         // apply the patch directly when decoding the packed data
         int patchIndex = 0;
@@ -249,7 +252,6 @@ public class LongStreamV2
                 literals[numLiterals++] = base + unpacked[i];
             }
         }
-
     }
 
     // This comes from the Apache Hive ORC code
@@ -266,7 +268,7 @@ public class LongStreamV2
         length += 1;
 
         // write the unpacked values and zigzag decode to result buffer
-        readBitPackedLongs(literals, numLiterals, length, fixedBits, input);
+        packer.unpack(literals, numLiterals, length, fixedBits, input);
         if (signed) {
             for (int i = 0; i < length; i++) {
                 literals[numLiterals] = LongDecode.zigzagDecode(literals[numLiterals]);
@@ -302,34 +304,6 @@ public class LongStreamV2
         // repeat the value for length times
         for (int i = 0; i < length; i++) {
             literals[numLiterals++] = val;
-        }
-    }
-
-    // This comes from the Apache Hive ORC code
-    private static void readBitPackedLongs(long[] buffer, int offset, int len, int bitSize, InputStream input)
-            throws IOException
-    {
-        int bitsLeft = 0;
-        int current = 0;
-
-        for (int i = offset; i < (offset + len); i++) {
-            long result = 0;
-            int bitsLeftToRead = bitSize;
-            while (bitsLeftToRead > bitsLeft) {
-                result <<= bitsLeft;
-                result |= current & ((1 << bitsLeft) - 1);
-                bitsLeftToRead -= bitsLeft;
-                current = input.read();
-                bitsLeft = 8;
-            }
-
-            // handle the left over bits
-            if (bitsLeftToRead > 0) {
-                result <<= bitsLeftToRead;
-                bitsLeft -= bitsLeftToRead;
-                result |= (current >> bitsLeft) & ((1 << bitsLeftToRead) - 1);
-            }
-            buffer[i] = result;
         }
     }
 
@@ -388,7 +362,7 @@ public class LongStreamV2
     }
 
     @Override
-    public void skip(int items)
+    public void skip(long items)
             throws IOException
     {
         while (items > 0) {
@@ -412,6 +386,29 @@ public class LongStreamV2
             sum += next();
         }
         return sum;
+    }
+
+    @Override
+    public void nextLongVector(Type type, int items, BlockBuilder builder)
+            throws IOException
+    {
+        for (int i = 0; i < items; i++) {
+            type.writeLong(builder, next());
+        }
+    }
+
+    @Override
+    public void nextLongVector(Type type, int items, BlockBuilder builder, boolean[] isNull)
+            throws IOException
+    {
+        for (int i = 0; i < items; i++) {
+            if (isNull[i]) {
+                builder.appendNull();
+            }
+            else {
+                type.writeLong(builder, next());
+            }
+        }
     }
 
     @Override

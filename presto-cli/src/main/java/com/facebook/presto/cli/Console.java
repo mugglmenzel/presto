@@ -25,11 +25,12 @@ import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Files;
-import io.airlift.command.Command;
-import io.airlift.command.HelpOption;
-import io.airlift.log.Level;
+import io.airlift.airline.Command;
+import io.airlift.airline.HelpOption;
+import io.airlift.http.client.spnego.KerberosConfig;
 import io.airlift.log.Logging;
 import io.airlift.log.LoggingConfiguration;
+import io.airlift.units.Duration;
 import jline.console.history.FileHistory;
 import jline.console.history.History;
 import jline.console.history.MemoryHistory;
@@ -44,12 +45,17 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 
 import static com.facebook.presto.cli.Completion.commandCompleter;
 import static com.facebook.presto.cli.Completion.lowerCaseCommandCompleter;
 import static com.facebook.presto.cli.Help.getHelpText;
+import static com.facebook.presto.client.ClientSession.stripTransactionId;
+import static com.facebook.presto.client.ClientSession.withCatalogAndSchema;
+import static com.facebook.presto.client.ClientSession.withPreparedStatements;
 import static com.facebook.presto.client.ClientSession.withProperties;
+import static com.facebook.presto.client.ClientSession.withTransactionId;
 import static com.facebook.presto.sql.parser.StatementSplitter.Statement;
 import static com.facebook.presto.sql.parser.StatementSplitter.isEmptyStatement;
 import static com.facebook.presto.sql.parser.StatementSplitter.squeezeStatement;
@@ -58,6 +64,7 @@ import static java.lang.Integer.parseInt;
 import static java.lang.String.format;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Locale.ENGLISH;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static jline.internal.Configuration.getUserHome;
 
 @Command(name = "presto", description = "Presto interactive console")
@@ -65,6 +72,7 @@ public class Console
         implements Runnable
 {
     private static final String PROMPT_NAME = "presto";
+    private static final Duration EXIT_DELAY = new Duration(3, SECONDS);
 
     // create a parser with all identifier options enabled, since this is only used for USE statements
     private static final SqlParser SQL_PARSER = new SqlParser(new SqlParserOptions().allowIdentifierSymbol(EnumSet.allOf(IdentifierSymbol.class)));
@@ -84,14 +92,15 @@ public class Console
     public void run()
     {
         ClientSession session = clientOptions.toClientSession();
+        KerberosConfig kerberosConfig = clientOptions.toKerberosConfig();
         boolean hasQuery = !Strings.isNullOrEmpty(clientOptions.execute);
         boolean isFromFile = !Strings.isNullOrEmpty(clientOptions.file);
 
-        if (!hasQuery || !isFromFile) {
+        if (!hasQuery && !isFromFile) {
             AnsiConsole.systemInstall();
         }
 
-        initializeLogging(session.isDebug());
+        initializeLogging(clientOptions.logLevelsFile);
 
         String query = clientOptions.execute;
         if (hasQuery) {
@@ -111,25 +120,41 @@ public class Console
             }
         }
 
-        try (QueryRunner queryRunner = QueryRunner.create(session, Optional.ofNullable(clientOptions.socksProxy))) {
+        AtomicBoolean exiting = new AtomicBoolean();
+        interruptThreadOnExit(Thread.currentThread(), exiting);
+
+        try (QueryRunner queryRunner = QueryRunner.create(
+                session,
+                Optional.ofNullable(clientOptions.socksProxy),
+                Optional.ofNullable(clientOptions.keystorePath),
+                Optional.ofNullable(clientOptions.keystorePassword),
+                Optional.ofNullable(clientOptions.truststorePath),
+                Optional.ofNullable(clientOptions.truststorePassword),
+                Optional.ofNullable(clientOptions.krb5Principal),
+                Optional.ofNullable(clientOptions.krb5RemoteServiceName),
+                clientOptions.authenticationEnabled,
+                kerberosConfig)) {
             if (hasQuery) {
                 executeCommand(queryRunner, query, clientOptions.outputFormat);
             }
             else {
-                runConsole(queryRunner, session);
+                runConsole(queryRunner, session, exiting);
             }
         }
     }
 
-    private static void runConsole(QueryRunner queryRunner, ClientSession session)
+    private static void runConsole(QueryRunner queryRunner, ClientSession session, AtomicBoolean exiting)
     {
         try (TableNameCompleter tableNameCompleter = new TableNameCompleter(queryRunner);
                 LineReader reader = new LineReader(getHistory(), commandCompleter(), lowerCaseCommandCompleter(), tableNameCompleter)) {
             tableNameCompleter.populateCache();
             StringBuilder buffer = new StringBuilder();
-            while (true) {
+            while (!exiting.get()) {
                 // read a line of input from user
-                String prompt = PROMPT_NAME + ":" + session.getSchema();
+                String prompt = PROMPT_NAME;
+                if (session.getSchema() != null) {
+                    prompt += ":" + session.getSchema();
+                }
                 if (buffer.length() > 0) {
                     prompt = Strings.repeat(" ", prompt.length() - 1) + "-";
                 }
@@ -196,7 +221,9 @@ public class Console
                 for (Statement split : splitter.getCompleteStatements()) {
                     Optional<Object> statement = getParsedStatement(split.statement());
                     if (statement.isPresent() && isSessionParameterChange(statement.get())) {
-                        session = processSessionParameterChange(statement.get(), session);
+                        Map<String, String> properties = queryRunner.getSession().getProperties();
+                        Map<String, String> preparedStatements = queryRunner.getSession().getPreparedStatements();
+                        session = processSessionParameterChange(statement.get(), session, properties, preparedStatements);
                         queryRunner.setSession(session);
                         tableNameCompleter.populateCache();
                     }
@@ -234,11 +261,13 @@ public class Console
         }
     }
 
-    static ClientSession processSessionParameterChange(Object parsedStatement, ClientSession session)
+    static ClientSession processSessionParameterChange(Object parsedStatement, ClientSession session, Map<String, String> existingProperties, Map<String, String> existingPreparedStatements)
     {
         if (parsedStatement instanceof Use) {
             Use use = (Use) parsedStatement;
-            return ClientSession.withCatalogAndSchema(session, use.getCatalog().orElse(session.getCatalog()), use.getSchema());
+            session = withCatalogAndSchema(session, use.getCatalog().orElse(session.getCatalog()), use.getSchema());
+            session = withProperties(session, existingProperties);
+            session = withPreparedStatements(session, existingPreparedStatements);
         }
         return session;
     }
@@ -266,16 +295,36 @@ public class Console
         try (Query query = queryRunner.startQuery(sql)) {
             query.renderOutput(System.out, outputFormat, interactive);
 
+            ClientSession session = queryRunner.getSession();
+
             // update session properties if present
             if (!query.getSetSessionProperties().isEmpty() || !query.getResetSessionProperties().isEmpty()) {
-                Map<String, String> sessionProperties = new HashMap<>(queryRunner.getSession().getProperties());
+                Map<String, String> sessionProperties = new HashMap<>(session.getProperties());
                 sessionProperties.putAll(query.getSetSessionProperties());
                 sessionProperties.keySet().removeAll(query.getResetSessionProperties());
-                queryRunner.setSession(withProperties(queryRunner.getSession(), sessionProperties));
+                session = withProperties(session, sessionProperties);
             }
+
+            // update prepared statements if present
+            if (!query.getAddedPreparedStatements().isEmpty() || !query.getDeallocatedPreparedStatements().isEmpty()) {
+                Map<String, String> preparedStatements = new HashMap<>(session.getPreparedStatements());
+                preparedStatements.putAll(query.getAddedPreparedStatements());
+                preparedStatements.keySet().removeAll(query.getDeallocatedPreparedStatements());
+                session = withPreparedStatements(session, preparedStatements);
+            }
+
+            // update transaction ID if necessary
+            if (query.isClearTransactionId()) {
+                session = stripTransactionId(session);
+            }
+            if (query.getStartedTransactionId() != null) {
+                session = withTransactionId(session, query.getStartedTransactionId());
+            }
+
+            queryRunner.setSession(session);
         }
         catch (RuntimeException e) {
-            System.out.println("Error running command: " + e.getMessage());
+            System.err.println("Error running command: " + e.getMessage());
             if (queryRunner.getSession().isDebug()) {
                 e.printStackTrace();
             }
@@ -300,25 +349,27 @@ public class Console
         return history;
     }
 
-    public static void initializeLogging(boolean debug)
+    private static void initializeLogging(String logLevelsFile)
     {
         // unhook out and err while initializing logging or logger will print to them
         PrintStream out = System.out;
         PrintStream err = System.err;
+
         try {
-            if (debug) {
-                Logging logging = Logging.initialize();
-                logging.configure(new LoggingConfiguration());
-                logging.setLevel("com.facebook.presto", Level.DEBUG);
+            LoggingConfiguration config = new LoggingConfiguration();
+
+            if (logLevelsFile == null) {
+                System.setOut(new PrintStream(nullOutputStream()));
+                System.setErr(new PrintStream(nullOutputStream()));
+
+                config.setConsoleEnabled(false);
             }
             else {
-                System.setOut(nullPrintStream());
-                System.setErr(nullPrintStream());
-
-                Logging logging = Logging.initialize();
-                logging.configure(new LoggingConfiguration());
-                logging.disableConsole();
+                config.setLevelsFile(logLevelsFile);
             }
+
+            Logging logging = Logging.initialize();
+            logging.configure(config);
         }
         catch (IOException e) {
             throw Throwables.propagate(e);
@@ -329,8 +380,16 @@ public class Console
         }
     }
 
-    public static PrintStream nullPrintStream()
+    private static void interruptThreadOnExit(Thread thread, AtomicBoolean exiting)
     {
-        return new PrintStream(nullOutputStream());
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            exiting.set(true);
+            thread.interrupt();
+            try {
+                thread.join(EXIT_DELAY.toMillis());
+            }
+            catch (InterruptedException ignored) {
+            }
+        }));
     }
 }

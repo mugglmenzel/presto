@@ -18,9 +18,12 @@ import com.facebook.presto.operator.aggregation.state.NullableLongState;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.block.BlockBuilderStatus;
+import com.facebook.presto.spi.function.AggregationFunction;
+import com.facebook.presto.spi.function.CombineFunction;
+import com.facebook.presto.spi.function.InputFunction;
+import com.facebook.presto.spi.function.OutputFunction;
+import com.facebook.presto.spi.function.SqlType;
 import com.facebook.presto.spi.type.StandardTypes;
-import com.facebook.presto.type.SqlType;
-import com.facebook.presto.type.TypeRegistry;
 import com.google.common.collect.ImmutableList;
 import org.testng.annotations.BeforeClass;
 
@@ -34,8 +37,7 @@ public class TestCountNullAggregation
     @BeforeClass
     public void setup()
     {
-        InternalAggregationFunction function = new AggregationCompiler().generateAggregationFunction(CountNull.class);
-        functionRegistry.addFunctions(new FunctionListBuilder(new TypeRegistry()).aggregate(function).getFunctions());
+        functionRegistry.addFunctions(new FunctionListBuilder().aggregate(CountNull.class).getFunctions());
     }
 
     @Override
@@ -82,6 +84,12 @@ public class TestCountNullAggregation
         {
             state.setLong(state.getLong() + scratchState.getLong());
             state.setNull(state.isNull() && scratchState.isNull());
+        }
+
+        @OutputFunction(StandardTypes.BIGINT)
+        public static void output(NullableLongState state, BlockBuilder out)
+        {
+            NullableLongState.write(BIGINT, state, out);
         }
     }
 

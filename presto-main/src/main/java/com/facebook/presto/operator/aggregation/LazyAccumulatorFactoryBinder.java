@@ -13,7 +13,7 @@
  */
 package com.facebook.presto.operator.aggregation;
 
-import com.facebook.presto.byteCode.DynamicClassLoader;
+import com.facebook.presto.bytecode.DynamicClassLoader;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 
@@ -31,8 +31,8 @@ public class LazyAccumulatorFactoryBinder
     }
 
     @Override
-    public AccumulatorFactory bind(List<Integer> argumentChannels, Optional<Integer> maskChannel, Optional<Integer> sampleWeightChannel, double confidence)
+    public AccumulatorFactory bind(List<Integer> argumentChannels, Optional<Integer> maskChannel)
     {
-        return binder.get().bind(argumentChannels, maskChannel, sampleWeightChannel, confidence);
+        return binder.get().bind(argumentChannels, maskChannel);
     }
 }

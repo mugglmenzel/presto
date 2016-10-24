@@ -15,16 +15,18 @@ package com.facebook.presto.operator;
 
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.type.Type;
-import com.google.common.base.Preconditions;
+import com.facebook.presto.sql.planner.Symbol;
+import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.google.common.collect.ImmutableList;
 
 import javax.annotation.concurrent.ThreadSafe;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
+import static java.util.Objects.requireNonNull;
 
 @ThreadSafe
 public class HashBuilderOperator
@@ -33,29 +35,43 @@ public class HashBuilderOperator
     public static class HashBuilderOperatorFactory
             implements OperatorFactory
     {
+        private enum State {
+            NOT_CREATED, CREATED, CLOSED
+        }
+
         private final int operatorId;
+        private final PlanNodeId planNodeId;
         private final SettableLookupSourceSupplier lookupSourceSupplier;
         private final List<Integer> hashChannels;
         private final Optional<Integer> hashChannel;
+        private final Optional<JoinFilterFunction> filterFunction;
 
         private final int expectedPositions;
-        private boolean closed;
+        private State state = State.NOT_CREATED;
 
         public HashBuilderOperatorFactory(
                 int operatorId,
+                PlanNodeId planNodeId,
                 List<Type> types,
+                Map<Symbol, Integer> layout,
                 List<Integer> hashChannels,
                 Optional<Integer> hashChannel,
+                boolean outer,
+                Optional<JoinFilterFunction> filterFunction,
                 int expectedPositions)
         {
             this.operatorId = operatorId;
-            this.lookupSourceSupplier = new SettableLookupSourceSupplier(checkNotNull(types, "types is null"));
+            this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
+            this.lookupSourceSupplier = new SettableLookupSourceSupplier(
+                    requireNonNull(types, "types is null"),
+                    requireNonNull(layout, "layout is null"),
+                    outer);
 
-            Preconditions.checkArgument(!hashChannels.isEmpty(), "hashChannels is empty");
-            this.hashChannels = ImmutableList.copyOf(checkNotNull(hashChannels, "hashChannels is null"));
-            this.hashChannel = checkNotNull(hashChannel, "hashChannel is null");
+            this.hashChannels = ImmutableList.copyOf(requireNonNull(hashChannels, "hashChannels is null"));
+            this.hashChannel = requireNonNull(hashChannel, "hashChannel is null");
+            this.filterFunction = requireNonNull(filterFunction, "filterFunction is null");
 
-            this.expectedPositions = checkNotNull(expectedPositions, "expectedPositions is null");
+            this.expectedPositions = expectedPositions;
         }
 
         public LookupSourceSupplier getLookupSourceSupplier()
@@ -72,20 +88,29 @@ public class HashBuilderOperator
         @Override
         public Operator createOperator(DriverContext driverContext)
         {
-            checkState(!closed, "Factory is already closed");
-            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, HashBuilderOperator.class.getSimpleName());
+            checkState(state == State.NOT_CREATED, "Only one hash build operator can be created");
+            state = State.CREATED;
+
+            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, HashBuilderOperator.class.getSimpleName());
             return new HashBuilderOperator(
                     operatorContext,
                     lookupSourceSupplier,
                     hashChannels,
                     hashChannel,
+                    filterFunction,
                     expectedPositions);
         }
 
         @Override
         public void close()
         {
-            closed = true;
+            state = State.CLOSED;
+        }
+
+        @Override
+        public OperatorFactory duplicate()
+        {
+            throw new UnsupportedOperationException("Hash build can not be duplicated");
         }
     }
 
@@ -93,6 +118,7 @@ public class HashBuilderOperator
     private final SettableLookupSourceSupplier lookupSourceSupplier;
     private final List<Integer> hashChannels;
     private final Optional<Integer> hashChannel;
+    private final Optional<JoinFilterFunction> filterFunction;
 
     private final PagesIndex pagesIndex;
 
@@ -103,15 +129,16 @@ public class HashBuilderOperator
             SettableLookupSourceSupplier lookupSourceSupplier,
             List<Integer> hashChannels,
             Optional<Integer> hashChannel,
+            Optional<JoinFilterFunction> filterFunction,
             int expectedPositions)
     {
-        this.operatorContext = checkNotNull(operatorContext, "operatorContext is null");
+        this.operatorContext = requireNonNull(operatorContext, "operatorContext is null");
 
-        this.lookupSourceSupplier = checkNotNull(lookupSourceSupplier, "hashSupplier is null");
+        this.lookupSourceSupplier = requireNonNull(lookupSourceSupplier, "hashSupplier is null");
 
-        Preconditions.checkArgument(!hashChannels.isEmpty(), "hashChannels is empty");
-        this.hashChannels = ImmutableList.copyOf(checkNotNull(hashChannels, "hashChannels is null"));
-        this.hashChannel = checkNotNull(hashChannel, "hashChannel is null");
+        this.hashChannels = ImmutableList.copyOf(requireNonNull(hashChannels, "hashChannels is null"));
+        this.hashChannel = requireNonNull(hashChannel, "hashChannel is null");
+        this.filterFunction = requireNonNull(filterFunction, "filterFunction is null");
 
         this.pagesIndex = new PagesIndex(lookupSourceSupplier.getTypes(), expectedPositions);
     }
@@ -135,9 +162,9 @@ public class HashBuilderOperator
             return;
         }
 
-        LookupSource lookupSource = pagesIndex.createLookupSource(hashChannels, hashChannel);
-        operatorContext.setMemoryReservation(pagesIndex.getEstimatedSize().toBytes() + lookupSource.getInMemorySizeInBytes());
-        lookupSourceSupplier.setLookupSource(lookupSource);
+        // After this point the LookupSource will take over our memory reservation, and ours will be zero
+        LookupSource lookupSource = pagesIndex.createLookupSource(hashChannels, hashChannel, filterFunction);
+        lookupSourceSupplier.setLookupSource(lookupSource, operatorContext);
         finished = true;
     }
 
@@ -156,10 +183,13 @@ public class HashBuilderOperator
     @Override
     public void addInput(Page page)
     {
-        checkNotNull(page, "page is null");
+        requireNonNull(page, "page is null");
         checkState(!isFinished(), "Operator is already finished");
 
         pagesIndex.addPage(page);
+        if (!operatorContext.trySetMemoryReservation(pagesIndex.getEstimatedSize().toBytes())) {
+            pagesIndex.compact();
+        }
         operatorContext.setMemoryReservation(pagesIndex.getEstimatedSize().toBytes());
         operatorContext.recordGeneratedOutput(page.getSizeInBytes(), page.getPositionCount());
     }

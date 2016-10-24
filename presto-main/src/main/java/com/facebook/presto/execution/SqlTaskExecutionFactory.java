@@ -16,6 +16,7 @@ package com.facebook.presto.execution;
 import com.facebook.presto.Session;
 import com.facebook.presto.TaskSource;
 import com.facebook.presto.event.query.QueryMonitor;
+import com.facebook.presto.execution.buffer.OutputBuffer;
 import com.facebook.presto.memory.QueryContext;
 import com.facebook.presto.operator.TaskContext;
 import com.facebook.presto.spi.PrestoException;
@@ -26,10 +27,8 @@ import io.airlift.units.DataSize;
 import java.util.List;
 import java.util.concurrent.Executor;
 
-import static com.facebook.presto.SystemSessionProperties.isBigQueryEnabled;
 import static com.facebook.presto.execution.SqlTaskExecution.createSqlTaskExecution;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
-import static com.google.common.base.Preconditions.checkNotNull;
 import static java.util.Objects.requireNonNull;
 
 public class SqlTaskExecutionFactory
@@ -41,8 +40,6 @@ public class SqlTaskExecutionFactory
 
     private final LocalExecutionPlanner planner;
     private final QueryMonitor queryMonitor;
-    private final DataSize maxTaskMemoryUsage;
-    private final DataSize bigQueryMaxTaskMemoryUsage;
     private final DataSize operatorPreAllocatedMemory;
     private final boolean verboseStats;
     private final boolean cpuTimerEnabled;
@@ -54,33 +51,30 @@ public class SqlTaskExecutionFactory
             QueryMonitor queryMonitor,
             TaskManagerConfig config)
     {
-        this.taskNotificationExecutor = checkNotNull(taskNotificationExecutor, "taskNotificationExecutor is null");
-        this.taskExecutor = checkNotNull(taskExecutor, "taskExecutor is null");
-        this.planner = checkNotNull(planner, "planner is null");
-        this.queryMonitor = checkNotNull(queryMonitor, "queryMonitor is null");
+        this.taskNotificationExecutor = requireNonNull(taskNotificationExecutor, "taskNotificationExecutor is null");
+        this.taskExecutor = requireNonNull(taskExecutor, "taskExecutor is null");
+        this.planner = requireNonNull(planner, "planner is null");
+        this.queryMonitor = requireNonNull(queryMonitor, "queryMonitor is null");
         requireNonNull(config, "config is null");
-        this.maxTaskMemoryUsage = config.getMaxTaskMemoryUsage();
-        this.bigQueryMaxTaskMemoryUsage = config.getBigQueryMaxTaskMemoryUsage();
         this.operatorPreAllocatedMemory = config.getOperatorPreAllocatedMemory();
         this.verboseStats = config.isVerboseStats();
         this.cpuTimerEnabled = config.isTaskCpuTimerEnabled();
     }
 
-    public SqlTaskExecution create(Session session, QueryContext queryContext, TaskStateMachine taskStateMachine, SharedBuffer sharedBuffer, PlanFragment fragment, List<TaskSource> sources)
+    public SqlTaskExecution create(Session session, QueryContext queryContext, TaskStateMachine taskStateMachine, OutputBuffer outputBuffer, PlanFragment fragment, List<TaskSource> sources)
     {
         boolean verboseStats = getVerboseStats(session);
         TaskContext taskContext = queryContext.addTaskContext(
                 taskStateMachine,
                 session,
-                isBigQueryEnabled(session, false) ? bigQueryMaxTaskMemoryUsage : maxTaskMemoryUsage,
-                checkNotNull(operatorPreAllocatedMemory, "operatorPreAllocatedMemory is null"),
+                requireNonNull(operatorPreAllocatedMemory, "operatorPreAllocatedMemory is null"),
                 verboseStats,
                 cpuTimerEnabled);
 
         return createSqlTaskExecution(
                 taskStateMachine,
                 taskContext,
-                sharedBuffer,
+                outputBuffer,
                 fragment,
                 sources,
                 planner,

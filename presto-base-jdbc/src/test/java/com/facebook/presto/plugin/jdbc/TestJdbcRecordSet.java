@@ -26,6 +26,7 @@ import java.util.Map;
 
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
+import static com.facebook.presto.spi.type.VarcharType.createVarcharType;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 
@@ -59,19 +60,20 @@ public class TestJdbcRecordSet
             throws Exception
     {
         RecordSet recordSet = new JdbcRecordSet(jdbcClient, split, ImmutableList.of(
-                new JdbcColumnHandle("test", "text", VARCHAR, 0),
-                new JdbcColumnHandle("test", "value", BIGINT, 1)));
-        assertEquals(recordSet.getColumnTypes(), ImmutableList.of(VARCHAR, BIGINT));
+                new JdbcColumnHandle("test", "text", VARCHAR),
+                new JdbcColumnHandle("test", "text_short", createVarcharType(32)),
+                new JdbcColumnHandle("test", "value", BIGINT)));
+        assertEquals(recordSet.getColumnTypes(), ImmutableList.of(VARCHAR, createVarcharType(32), BIGINT));
 
         recordSet = new JdbcRecordSet(jdbcClient, split, ImmutableList.of(
-                new JdbcColumnHandle("test", "value", BIGINT, 1),
-                new JdbcColumnHandle("test", "text", VARCHAR, 0)));
+                new JdbcColumnHandle("test", "value", BIGINT),
+                new JdbcColumnHandle("test", "text", VARCHAR)));
         assertEquals(recordSet.getColumnTypes(), ImmutableList.of(BIGINT, VARCHAR));
 
         recordSet = new JdbcRecordSet(jdbcClient, split, ImmutableList.of(
-                new JdbcColumnHandle("test", "value", BIGINT, 1),
-                new JdbcColumnHandle("test", "value", BIGINT, 1),
-                new JdbcColumnHandle("test", "text", VARCHAR, 0)));
+                new JdbcColumnHandle("test", "value", BIGINT),
+                new JdbcColumnHandle("test", "value", BIGINT),
+                new JdbcColumnHandle("test", "text", VARCHAR)));
         assertEquals(recordSet.getColumnTypes(), ImmutableList.of(BIGINT, BIGINT, VARCHAR));
 
         recordSet = new JdbcRecordSet(jdbcClient, split, ImmutableList.<JdbcColumnHandle>of());
@@ -84,17 +86,21 @@ public class TestJdbcRecordSet
     {
         RecordSet recordSet = new JdbcRecordSet(jdbcClient, split, ImmutableList.of(
                 columnHandles.get("text"),
+                columnHandles.get("text_short"),
                 columnHandles.get("value")));
 
         try (RecordCursor cursor = recordSet.cursor()) {
             assertEquals(cursor.getType(0), VARCHAR);
-            assertEquals(cursor.getType(1), BIGINT);
+            assertEquals(cursor.getType(1), createVarcharType(32));
+            assertEquals(cursor.getType(2), BIGINT);
 
             Map<String, Long> data = new LinkedHashMap<>();
             while (cursor.advanceNextPosition()) {
-                data.put(cursor.getSlice(0).toStringUtf8(), cursor.getLong(1));
+                data.put(cursor.getSlice(0).toStringUtf8(), cursor.getLong(2));
+                assertEquals(cursor.getSlice(0), cursor.getSlice(1));
                 assertFalse(cursor.isNull(0));
                 assertFalse(cursor.isNull(1));
+                assertFalse(cursor.isNull(2));
             }
 
             assertEquals(data, ImmutableMap.<String, Long>builder()
@@ -137,5 +143,18 @@ public class TestJdbcRecordSet
                     .put("twelve", 12L)
                     .build());
         }
+    }
+
+    @Test
+    public void testIdempotentClose()
+    {
+        RecordSet recordSet = new JdbcRecordSet(jdbcClient, split, ImmutableList.of(
+                columnHandles.get("value"),
+                columnHandles.get("value"),
+                columnHandles.get("text")));
+
+        RecordCursor cursor = recordSet.cursor();
+        cursor.close();
+        cursor.close();
     }
 }

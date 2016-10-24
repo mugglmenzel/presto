@@ -13,48 +13,49 @@
  */
 package com.facebook.presto.sql.planner;
 
-import com.facebook.presto.sql.analyzer.TupleDescriptor;
+import com.facebook.presto.sql.analyzer.RelationType;
+import com.facebook.presto.sql.analyzer.ResolvedField;
+import com.facebook.presto.sql.analyzer.Scope;
 import com.facebook.presto.sql.planner.plan.PlanNode;
-import com.google.common.base.Preconditions;
+import com.facebook.presto.sql.tree.Expression;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 class RelationPlan
 {
     private final PlanNode root;
     private final List<Symbol> outputSymbols;
-    private final TupleDescriptor descriptor;
-    private final Optional<Symbol> sampleWeight;
+    private final Scope scope;
 
-    public RelationPlan(PlanNode root, TupleDescriptor descriptor, List<Symbol> outputSymbols, Optional<Symbol> sampleWeight)
+    public RelationPlan(PlanNode root, Scope scope, List<Symbol> outputSymbols)
     {
-        checkNotNull(root, "root is null");
-        checkNotNull(outputSymbols, "outputSymbols is null");
-        checkNotNull(descriptor, "descriptor is null");
-        checkNotNull(descriptor, "sampleWeight is null");
+        requireNonNull(root, "root is null");
+        requireNonNull(outputSymbols, "outputSymbols is null");
+        requireNonNull(scope, "scope is null");
 
-        checkArgument(descriptor.getAllFieldCount() == outputSymbols.size(),
-                "Number of outputs (%s) doesn't match descriptor size (%s)", outputSymbols.size(), descriptor.getAllFieldCount());
+        checkArgument(scope.getRelationType().getAllFieldCount() == outputSymbols.size(),
+                "Number of outputs (%s) doesn't match scope size (%s)", outputSymbols.size(), scope.getRelationType().getAllFieldCount());
 
         this.root = root;
-        this.descriptor = descriptor;
+        this.scope = scope;
         this.outputSymbols = ImmutableList.copyOf(outputSymbols);
-        this.sampleWeight = sampleWeight;
     }
 
-    public Optional<Symbol> getSampleWeight()
+    public Optional<Symbol> getSymbol(Expression expression)
     {
-        return sampleWeight;
+        return scope.tryResolveField(expression)
+                .filter(ResolvedField::isLocal)
+                .map(field -> outputSymbols.get(field.getFieldIndex()));
     }
 
     public Symbol getSymbol(int fieldIndex)
     {
-        Preconditions.checkArgument(fieldIndex >= 0 && fieldIndex < outputSymbols.size() && outputSymbols.get(fieldIndex) != null, "No field->symbol mapping for field %s", fieldIndex);
+        checkArgument(fieldIndex >= 0 && fieldIndex < outputSymbols.size() && outputSymbols.get(fieldIndex) != null, "No field->symbol mapping for field %s", fieldIndex);
         return outputSymbols.get(fieldIndex);
     }
 
@@ -68,8 +69,13 @@ class RelationPlan
         return outputSymbols;
     }
 
-    public TupleDescriptor getDescriptor()
+    public RelationType getDescriptor()
     {
-        return descriptor;
+        return scope.getRelationType();
+    }
+
+    public Scope getScope()
+    {
+        return scope;
     }
 }

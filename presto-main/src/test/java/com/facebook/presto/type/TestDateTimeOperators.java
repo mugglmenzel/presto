@@ -38,8 +38,8 @@ import static com.facebook.presto.spi.type.TimeZoneKey.getTimeZoneKeyForOffset;
 import static com.facebook.presto.spi.type.TimestampType.TIMESTAMP;
 import static com.facebook.presto.spi.type.TimestampWithTimeZoneType.TIMESTAMP_WITH_TIME_ZONE;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
+import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
 import static com.facebook.presto.util.DateTimeZoneIndex.getDateTimeZone;
-import static java.util.Locale.ENGLISH;
 import static java.util.concurrent.TimeUnit.HOURS;
 import static org.joda.time.DateTimeZone.UTC;
 import static org.testng.Assert.fail;
@@ -56,13 +56,8 @@ public class TestDateTimeOperators
     @BeforeClass
     public void setUp()
     {
-        Session session = Session.builder()
-                .setUser("user")
-                .setSource("test")
-                .setCatalog("catalog")
-                .setSchema("schema")
+        Session session = testSessionBuilder()
                 .setTimeZoneKey(TIME_ZONE_KEY)
-                .setLocale(ENGLISH)
                 .build();
         functionAssertions = new FunctionAssertions(session);
     }
@@ -319,6 +314,17 @@ public class TestDateTimeOperators
         assertFunction("TIMESTAMP '2013-10-27 03:05' - INTERVAL '2' hour",
                 TIMESTAMP,
                 new SqlTimestamp(new DateTime(2013, 10, 27, 2, 5, 0, 0, TIME_ZONE).getMillis(), TIME_ZONE_KEY));
+    }
+
+    @Test
+    public void testIsDistinctFrom()
+            throws Exception
+    {
+        assertFunction("CAST(NULL AS DATE) IS DISTINCT FROM CAST(NULL AS DATE)", BOOLEAN, false);
+        assertFunction("DATE '2013-10-27' IS DISTINCT FROM TIMESTAMP '2013-10-27 00:00:00'", BOOLEAN, false);
+        assertFunction("DATE '2013-10-27' IS DISTINCT FROM TIMESTAMP '2013-10-28 00:00:00'", BOOLEAN, true);
+        assertFunction("NULL IS DISTINCT FROM DATE '2013-10-27'", BOOLEAN, true);
+        assertFunction("DATE '2013-10-27' IS DISTINCT FROM NULL", BOOLEAN, true);
     }
 
     private static SqlDate toDate(DateTime dateTime)

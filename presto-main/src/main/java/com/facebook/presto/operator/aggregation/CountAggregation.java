@@ -14,12 +14,18 @@
 package com.facebook.presto.operator.aggregation;
 
 import com.facebook.presto.operator.aggregation.state.LongState;
+import com.facebook.presto.spi.block.BlockBuilder;
+import com.facebook.presto.spi.function.AggregationFunction;
+import com.facebook.presto.spi.function.CombineFunction;
+import com.facebook.presto.spi.function.InputFunction;
+import com.facebook.presto.spi.function.OutputFunction;
+import com.facebook.presto.spi.type.StandardTypes;
+
+import static com.facebook.presto.spi.type.BigintType.BIGINT;
 
 @AggregationFunction("count")
 public final class CountAggregation
 {
-    public static final InternalAggregationFunction COUNT = new AggregationCompiler().generateAggregationFunction(CountAggregation.class);
-
     private CountAggregation()
     {
     }
@@ -34,5 +40,11 @@ public final class CountAggregation
     public static void combine(LongState state, LongState otherState)
     {
         state.setLong(state.getLong() + otherState.getLong());
+    }
+
+    @OutputFunction(StandardTypes.BIGINT)
+    public static void output(LongState state, BlockBuilder out)
+    {
+        BIGINT.writeLong(out, state.getLong());
     }
 }

@@ -14,51 +14,59 @@
 package com.facebook.presto.type;
 
 import com.facebook.presto.spi.ConnectorSession;
+import com.facebook.presto.spi.block.ArrayBlockBuilder;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.block.BlockBuilderStatus;
-import com.facebook.presto.spi.block.VariableWidthBlockBuilder;
-import com.facebook.presto.spi.type.AbstractVariableWidthType;
+import com.facebook.presto.spi.block.InterleavedBlockBuilder;
+import com.facebook.presto.spi.type.AbstractType;
+import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.spi.type.TypeSignature;
+import com.facebook.presto.spi.type.TypeSignatureParameter;
 import com.google.common.collect.ImmutableList;
-import io.airlift.slice.Slice;
 
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static com.facebook.presto.type.TypeUtils.appendToBlockBuilder;
-import static com.facebook.presto.type.TypeUtils.buildStructuralSlice;
 import static com.facebook.presto.type.TypeUtils.checkElementNotNull;
 import static com.facebook.presto.type.TypeUtils.hashPosition;
-import static com.facebook.presto.type.TypeUtils.parameterizedTypeName;
-import static com.facebook.presto.type.TypeUtils.readStructuralBlock;
 import static com.google.common.base.Preconditions.checkArgument;
 
 public class MapType
-        extends AbstractVariableWidthType
+        extends AbstractType
 {
     private final Type keyType;
     private final Type valueType;
     private static final String MAP_NULL_ELEMENT_MSG = "MAP comparison not supported for null value elements";
+    private static final int EXPECTED_BYTES_PER_ENTRY = 32;
 
     public MapType(Type keyType, Type valueType)
     {
-        super(parameterizedTypeName("map", keyType.getTypeSignature(), valueType.getTypeSignature()), Slice.class);
+        super(new TypeSignature(StandardTypes.MAP,
+                TypeSignatureParameter.of(keyType.getTypeSignature()),
+                TypeSignatureParameter.of(valueType.getTypeSignature())),
+                Block.class);
         checkArgument(keyType.isComparable(), "key type must be comparable");
         this.keyType = keyType;
         this.valueType = valueType;
     }
 
-    public static Slice toStackRepresentation(Map<?, ?> value, Type keyType, Type valueType)
+    @Override
+    public BlockBuilder createBlockBuilder(BlockBuilderStatus blockBuilderStatus, int expectedEntries, int expectedBytesPerEntry)
     {
-        BlockBuilder blockBuilder = new VariableWidthBlockBuilder(new BlockBuilderStatus(), 1024);
-        for (Map.Entry<?, ?> entry : value.entrySet()) {
-            appendToBlockBuilder(keyType, entry.getKey(), blockBuilder);
-            appendToBlockBuilder(valueType, entry.getValue(), blockBuilder);
-        }
-        return buildStructuralSlice(blockBuilder);
+        return new ArrayBlockBuilder(
+                new InterleavedBlockBuilder(getTypeParameters(), blockBuilderStatus, expectedEntries * 2, expectedBytesPerEntry),
+                blockBuilderStatus,
+                expectedEntries);
+    }
+
+    @Override
+    public BlockBuilder createBlockBuilder(BlockBuilderStatus blockBuilderStatus, int expectedEntries)
+    {
+        return createBlockBuilder(blockBuilderStatus, expectedEntries, EXPECTED_BYTES_PER_ENTRY);
     }
 
     public Type getKeyType()
@@ -78,11 +86,10 @@ public class MapType
     }
 
     @Override
-    public int hash(Block block, int position)
+    public long hash(Block block, int position)
     {
-        Slice mapSlice = getSlice(block, position);
-        Block mapBlock = readStructuralBlock(mapSlice);
-        int result = 0;
+        Block mapBlock = getObject(block, position);
+        long result = 0;
 
         for (int i = 0; i < mapBlock.getPositionCount(); i += 2) {
             result += hashPosition(keyType, mapBlock, i);
@@ -94,10 +101,8 @@ public class MapType
     @Override
     public boolean equalTo(Block leftBlock, int leftPosition, Block rightBlock, int rightPosition)
     {
-        Slice leftSlice = getSlice(leftBlock, leftPosition);
-        Slice rightSlice = getSlice(rightBlock, rightPosition);
-        Block leftMapBlock = readStructuralBlock(leftSlice);
-        Block rightMapBlock = readStructuralBlock(rightSlice);
+        Block leftMapBlock = leftBlock.getObject(leftPosition, Block.class);
+        Block rightMapBlock = rightBlock.getObject(rightPosition, Block.class);
 
         if (leftMapBlock.getPositionCount() != rightMapBlock.getPositionCount()) {
             return false;
@@ -151,7 +156,7 @@ public class MapType
         @Override
         public int hashCode()
         {
-            return type.hash(block, position);
+            return Long.hashCode(type.hash(block, position));
         }
 
         @Override
@@ -172,8 +177,7 @@ public class MapType
             return null;
         }
 
-        Slice slice = block.getSlice(position, 0, block.getLength(position));
-        Block mapBlock = readStructuralBlock(slice);
+        Block mapBlock = block.getObject(position, Block.class);
         Map<Object, Object> map = new HashMap<>();
         for (int i = 0; i < mapBlock.getPositionCount(); i += 2) {
             map.put(keyType.getObjectValue(session, mapBlock, i), valueType.getObjectValue(session, mapBlock, i + 1));
@@ -189,27 +193,21 @@ public class MapType
             blockBuilder.appendNull();
         }
         else {
-            block.writeBytesTo(position, 0, block.getLength(position), blockBuilder);
+            block.writePositionTo(position, blockBuilder);
             blockBuilder.closeEntry();
         }
     }
 
     @Override
-    public Slice getSlice(Block block, int position)
+    public Block getObject(Block block, int position)
     {
-        return block.getSlice(position, 0, block.getLength(position));
+        return block.getObject(position, Block.class);
     }
 
     @Override
-    public void writeSlice(BlockBuilder blockBuilder, Slice value)
+    public void writeObject(BlockBuilder blockBuilder, Object value)
     {
-        writeSlice(blockBuilder, value, 0, value.length());
-    }
-
-    @Override
-    public void writeSlice(BlockBuilder blockBuilder, Slice value, int offset, int length)
-    {
-        blockBuilder.writeBytes(value, offset, length).closeEntry();
+        blockBuilder.writeObject(value).closeEntry();
     }
 
     @Override
@@ -221,6 +219,6 @@ public class MapType
     @Override
     public String getDisplayName()
     {
-        return "map<" + keyType.getDisplayName() + ", " + valueType.getDisplayName() + ">";
+        return "map(" + keyType.getDisplayName() + ", " + valueType.getDisplayName() + ")";
     }
 }

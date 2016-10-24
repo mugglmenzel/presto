@@ -14,7 +14,7 @@
 package com.facebook.presto.tests;
 
 import com.facebook.presto.Session;
-import com.facebook.presto.metadata.QualifiedTableName;
+import com.facebook.presto.metadata.QualifiedObjectName;
 import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.MaterializedRow;
 import com.facebook.presto.testing.QueryRunner;
@@ -27,6 +27,7 @@ import io.airlift.units.Duration;
 import org.intellij.lang.annotations.Language;
 
 import java.util.List;
+import java.util.OptionalLong;
 
 import static com.facebook.presto.util.Types.checkType;
 import static io.airlift.units.Duration.nanosSince;
@@ -46,35 +47,98 @@ public final class QueryAssertions
     {
     }
 
+    public static void assertUpdate(QueryRunner queryRunner, Session session, @Language("SQL") String sql, OptionalLong count)
+    {
+        long start = System.nanoTime();
+        MaterializedResult results = queryRunner.execute(session, sql);
+        log.info("FINISHED in presto: %s", nanosSince(start));
+
+        if (!results.getUpdateType().isPresent()) {
+            fail("update type is not set");
+        }
+
+        if (results.getUpdateCount().isPresent()) {
+            if (!count.isPresent()) {
+                fail("update count should not be present");
+            }
+            assertEquals(results.getUpdateCount().getAsLong(), count.getAsLong(), "update count");
+        }
+        else if (count.isPresent()) {
+            fail("update count is not present");
+        }
+    }
+
     public static void assertQuery(QueryRunner actualQueryRunner,
             Session session,
             @Language("SQL") String actual,
             H2QueryRunner h2QueryRunner,
             @Language("SQL") String expected,
-            boolean ensureOrdering)
+            boolean ensureOrdering,
+            boolean compareUpdate)
             throws Exception
     {
         long start = System.nanoTime();
-        MaterializedResult actualResults = actualQueryRunner.execute(session, actual).toJdbcTypes();
+        MaterializedResult actualResults = null;
+        try {
+            actualResults = actualQueryRunner.execute(session, actual).toJdbcTypes();
+        }
+        catch (RuntimeException ex) {
+            fail("Execution of 'actual' query failed: " + actual, ex);
+        }
         Duration actualTime = nanosSince(start);
 
         long expectedStart = System.nanoTime();
-        MaterializedResult expectedResults = h2QueryRunner.execute(session, expected, actualResults.getTypes());
+        MaterializedResult expectedResults = null;
+        try {
+            expectedResults = h2QueryRunner.execute(session, expected, actualResults.getTypes());
+        }
+        catch (RuntimeException ex) {
+            fail("Execution of 'expected' query failed: " + actual, ex);
+        }
         log.info("FINISHED in presto: %s, h2: %s, total: %s", actualTime, nanosSince(expectedStart), nanosSince(start));
+
+        if (actualResults.getUpdateType().isPresent() || actualResults.getUpdateCount().isPresent()) {
+            if (!actualResults.getUpdateType().isPresent()) {
+                fail("update count present without update type for query: \n" + actual);
+            }
+            if (!compareUpdate) {
+                fail("update type should not be present (use assertUpdate) for query: \n" + actual);
+            }
+        }
 
         List<MaterializedRow> actualRows = actualResults.getMaterializedRows();
         List<MaterializedRow> expectedRows = expectedResults.getMaterializedRows();
+
+        if (compareUpdate) {
+            if (!actualResults.getUpdateType().isPresent()) {
+                fail("update type not present for query: \n" + actual);
+            }
+            if (!actualResults.getUpdateCount().isPresent()) {
+                fail("update count not present for query: \n" + actual);
+            }
+            assertEquals(actualRows.size(), 1, "For query: \n " + actual + "\n:");
+            assertEquals(expectedRows.size(), 1, "For query: \n " + actual + "\n:");
+            MaterializedRow row = expectedRows.get(0);
+            assertEquals(row.getFieldCount(), 1, "For query: \n " + actual + "\n:");
+            assertEquals(row.getField(0), actualResults.getUpdateCount().getAsLong(), "For query: \n " + actual + "\n:");
+        }
+
         if (ensureOrdering) {
             if (!actualRows.equals(expectedRows)) {
-                assertEquals(actualRows, expectedRows);
+                assertEquals(actualRows, expectedRows, "For query: \n " + actual + "\n:");
             }
         }
         else {
-            assertEqualsIgnoreOrder(actualRows, expectedRows);
+            assertEqualsIgnoreOrder(actualRows, expectedRows, "For query: \n " + actual);
         }
     }
 
     public static void assertEqualsIgnoreOrder(Iterable<?> actual, Iterable<?> expected)
+    {
+        assertEqualsIgnoreOrder(actual, expected, null);
+    }
+
+    public static void assertEqualsIgnoreOrder(Iterable<?> actual, Iterable<?> expected, String message)
     {
         assertNotNull(actual, "actual is null");
         assertNotNull(expected, "expected is null");
@@ -82,11 +146,26 @@ public final class QueryAssertions
         ImmutableMultiset<?> actualSet = ImmutableMultiset.copyOf(actual);
         ImmutableMultiset<?> expectedSet = ImmutableMultiset.copyOf(expected);
         if (!actualSet.equals(expectedSet)) {
-            fail(format("not equal\nActual %s rows:\n    %s\nExpected %s rows:\n    %s\n",
+            fail(format("%snot equal\nActual %s rows:\n    %s\nExpected %s rows:\n    %s\n",
+                    message == null ? "" : (message + "\n"),
                     actualSet.size(),
                     Joiner.on("\n    ").join(Iterables.limit(actualSet, 100)),
                     expectedSet.size(),
                     Joiner.on("\n    ").join(Iterables.limit(expectedSet, 100))));
+        }
+    }
+
+    public static void assertContains(MaterializedResult all, MaterializedResult expectedSubset)
+    {
+        for (MaterializedRow row : expectedSubset.getMaterializedRows()) {
+            if (!all.getMaterializedRows().contains(row)) {
+                fail(format("expected row missing: %s\nAll %s rows:\n    %s\nExpected subset %s rows:\n    %s\n",
+                        row,
+                        all.getMaterializedRows().size(),
+                        Joiner.on("\n    ").join(Iterables.limit(all, 100)),
+                        expectedSubset.getMaterializedRows().size(),
+                        Joiner.on("\n    ").join(Iterables.limit(expectedSubset, 100))));
+            }
         }
     }
 
@@ -148,30 +227,19 @@ public final class QueryAssertions
         log.info("Loading from %s.%s complete in %s", sourceCatalog, sourceSchema, nanosSince(startTime).toString(SECONDS));
     }
 
-    public static void copyAllTables(QueryRunner queryRunner, String sourceCatalog, String sourceSchema, Session session)
-            throws Exception
-    {
-        for (QualifiedTableName table : queryRunner.listTables(session, sourceCatalog, sourceSchema)) {
-            if (table.getTableName().equalsIgnoreCase("dual")) {
-                continue;
-            }
-            copyTable(queryRunner, table, session);
-        }
-    }
-
     public static void copyTable(QueryRunner queryRunner, String sourceCatalog, String sourceSchema, String sourceTable, Session session)
             throws Exception
     {
-        QualifiedTableName table = new QualifiedTableName(sourceCatalog, sourceSchema, sourceTable);
+        QualifiedObjectName table = new QualifiedObjectName(sourceCatalog, sourceSchema, sourceTable);
         copyTable(queryRunner, table, session);
     }
 
-    public static void copyTable(QueryRunner queryRunner, QualifiedTableName table, Session session)
+    public static void copyTable(QueryRunner queryRunner, QualifiedObjectName table, Session session)
     {
         long start = System.nanoTime();
-        log.info("Running import for %s", table.getTableName());
-        @Language("SQL") String sql = format("CREATE TABLE %s AS SELECT * FROM %s", table.getTableName(), table);
+        log.info("Running import for %s", table.getObjectName());
+        @Language("SQL") String sql = format("CREATE TABLE %s AS SELECT * FROM %s", table.getObjectName(), table);
         long rows = checkType(queryRunner.execute(session, sql).getMaterializedRows().get(0).getField(0), Long.class, "rows");
-        log.info("Imported %s rows for %s in %s", rows, table.getTableName(), nanosSince(start).convertToMostSuccinctTimeUnit());
+        log.info("Imported %s rows for %s in %s", rows, table.getObjectName(), nanosSince(start).convertToMostSuccinctTimeUnit());
     }
 }

@@ -13,13 +13,12 @@
  */
 package com.facebook.presto.orc.stream;
 
-import com.google.common.base.MoreObjects;
-
 import javax.annotation.Nullable;
 
 import java.io.IOException;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.MoreObjects.toStringHelper;
+import static java.util.Objects.requireNonNull;
 
 public class ValueStreamSource<S extends ValueStream<?>> implements StreamSource<S>
 {
@@ -27,7 +26,7 @@ public class ValueStreamSource<S extends ValueStream<?>> implements StreamSource
 
     public ValueStreamSource(S stream)
     {
-        this.stream = checkNotNull(stream, "stream is null");
+        this.stream = requireNonNull(stream, "stream is null");
     }
 
     @Override
@@ -47,7 +46,7 @@ public class ValueStreamSource<S extends ValueStream<?>> implements StreamSource
     @Override
     public String toString()
     {
-        return MoreObjects.toStringHelper(this)
+        return toStringHelper(this)
                 .add("stream", stream)
                 .toString();
     }
