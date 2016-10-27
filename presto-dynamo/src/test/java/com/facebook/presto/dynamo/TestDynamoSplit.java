@@ -13,16 +13,14 @@
  */
 package com.facebook.presto.dynamo;
 
-import static org.testng.Assert.assertEquals;
-import io.airlift.json.JsonCodec;
-
-import org.testng.annotations.Test;
-
 import com.facebook.presto.spi.HostAddress;
 import com.google.common.collect.ImmutableList;
+import io.airlift.json.JsonCodec;
+import org.testng.annotations.Test;
 
-public class TestDynamoSplit
-{
+import static org.testng.Assert.assertEquals;
+
+public class TestDynamoSplit {
     private final JsonCodec<DynamoSplit> codec = JsonCodec.jsonCodec(DynamoSplit.class);
 
     private final ImmutableList<HostAddress> addresses = ImmutableList.of(
@@ -30,9 +28,8 @@ public class TestDynamoSplit
             HostAddress.fromParts("127.0.0.1", 45));
 
     @Test
-    public void testJsonRoundTrip()
-    {
-        DynamoSplit expected = new DynamoSplit("connectorId", "schema1", "table1", "partitionId", "condition", addresses);
+    public void testJsonRoundTrip() {
+        DynamoSplit expected = new DynamoSplit("connectorId", "schema1", "table1", 1, 100, "condition", addresses);
 
         String json = codec.toJson(expected);
         DynamoSplit actual = codec.fromJson(json);
@@ -40,19 +37,20 @@ public class TestDynamoSplit
         assertEquals(actual.getConnectorId(), expected.getConnectorId());
         assertEquals(actual.getSchema(), expected.getSchema());
         assertEquals(actual.getTable(), expected.getTable());
+        assertEquals(actual.getPartitionId(), expected.getPartitionId());
+        assertEquals(actual.getPartitionCount(), expected.getPartitionCount());
         assertEquals(actual.getSplitCondition(), expected.getSplitCondition());
         assertEquals(actual.getAddresses(), expected.getAddresses());
     }
 
     @Test
-    public void testWhereClause()
-    {
+    public void testWhereClause() {
         DynamoSplit split;
         split = new DynamoSplit(
                 "connectorId",
                 "schema1",
                 "table1",
-                DynamoPartition.UNPARTITIONED_ID,
+                1, 100,
                 "token(k) >= 0 AND token(k) <= 2",
                 addresses);
         assertEquals(split.getWhereClause(), " WHERE token(k) >= 0 AND token(k) <= 2");
@@ -61,9 +59,10 @@ public class TestDynamoSplit
                 "connectorId",
                 "schema1",
                 "table1",
-                "key = 123",
+                1, 100,
                 null,
                 addresses);
-        assertEquals(split.getWhereClause(), " WHERE key = 123");
+        assertEquals(split.getWhereClause(), "");
+
     }
 }

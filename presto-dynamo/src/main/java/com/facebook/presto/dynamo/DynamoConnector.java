@@ -13,24 +13,21 @@
  */
 package com.facebook.presto.dynamo;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.facebook.presto.spi.connector.*;
+import com.facebook.presto.spi.transaction.IsolationLevel;
 
 import javax.inject.Inject;
 
-import com.facebook.presto.spi.Connector;
-import com.facebook.presto.spi.ConnectorHandleResolver;
-import com.facebook.presto.spi.ConnectorMetadata;
-import com.facebook.presto.spi.ConnectorRecordSetProvider;
-import com.facebook.presto.spi.ConnectorRecordSinkProvider;
-import com.facebook.presto.spi.ConnectorSplitManager;
+import static com.facebook.presto.spi.transaction.IsolationLevel.READ_UNCOMMITTED;
+import static com.facebook.presto.spi.transaction.IsolationLevel.checkConnectorSupports;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 
 public class DynamoConnector
-        implements Connector
-{
+        implements Connector {
     private final DynamoMetadata metadata;
     private final DynamoSplitManager splitManager;
     private final ConnectorRecordSetProvider recordSetProvider;
-    private final DynamoHandleResolver handleResolver;
     private final DynamoConnectorRecordSinkProvider recordSinkProvider;
 
     @Inject
@@ -38,43 +35,47 @@ public class DynamoConnector
             DynamoMetadata metadata,
             DynamoSplitManager splitManager,
             DynamoRecordSetProvider recordSetProvider,
-            DynamoHandleResolver handleResolver,
-            DynamoConnectorRecordSinkProvider recordSinkProvider)
-    {
+            DynamoConnectorRecordSinkProvider recordSinkProvider) {
         this.metadata = checkNotNull(metadata, "metadata is null");
         this.splitManager = checkNotNull(splitManager, "splitManager is null");
         this.recordSetProvider = checkNotNull(recordSetProvider, "recordSetProvider is null");
-        this.handleResolver = checkNotNull(handleResolver, "handleResolver is null");
         this.recordSinkProvider = checkNotNull(recordSinkProvider, "recordSinkProvider is null");
     }
 
     @Override
-    public ConnectorMetadata getMetadata()
-    {
+    public ConnectorTransactionHandle beginTransaction(IsolationLevel isolationLevel, boolean readOnly) {
+        checkConnectorSupports(READ_UNCOMMITTED, isolationLevel);
+        return DynamoTransactionHandle.INSTANCE;
+    }
+
+    @Override
+    public ConnectorMetadata getMetadata(ConnectorTransactionHandle transactionHandle) {
         return metadata;
     }
 
     @Override
-    public ConnectorSplitManager getSplitManager()
-    {
+    public ConnectorSplitManager getSplitManager() {
         return splitManager;
     }
 
     @Override
-    public ConnectorRecordSetProvider getRecordSetProvider()
-    {
+    public ConnectorPageSourceProvider getPageSourceProvider() {
+        return null;
+    }
+
+    @Override
+    public ConnectorRecordSetProvider getRecordSetProvider() {
         return recordSetProvider;
     }
 
     @Override
-    public ConnectorHandleResolver getHandleResolver()
-    {
-        return handleResolver;
+    public ConnectorPageSinkProvider getPageSinkProvider() {
+        return null;
     }
 
     @Override
-    public ConnectorRecordSinkProvider getRecordSinkProvider()
-    {
+    public ConnectorRecordSinkProvider getRecordSinkProvider() {
         return recordSinkProvider;
     }
+
 }

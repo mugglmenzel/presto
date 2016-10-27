@@ -31,15 +31,21 @@ public class DynamoRecordSet
 {
     private final AmazonDynamoDB dynamoClient;
     private final String tableName;
+    private final Integer partitionId;
+    private final Integer partitionCount;
     private final List<String> columnNames;
     private final List<FullDynamoType> dynamoTypes;
     private final List<Type> columnTypes;
     private final int fetchSize;
 
-    public DynamoRecordSet(AmazonDynamoDB dynamoClient, String tableName, List<DynamoColumnHandle> dynamoColumns, int fetchSize)
+    public DynamoRecordSet(AmazonDynamoDB dynamoClient, String tableName, Integer partitionId, Integer partitionCount, List<DynamoColumnHandle> dynamoColumns, int fetchSize)
     {
         this.dynamoClient = checkNotNull(dynamoClient, "dynamoClient is null");
         this.tableName = checkNotNull(tableName, "tableName is null");
+        checkNotNull(partitionId, "partitionId is null");
+        this.partitionId = partitionId;
+        checkNotNull(partitionCount, "partitionCount is null");
+        this.partitionCount = partitionCount;
         checkNotNull(dynamoColumns, "dynamoColumns is null");
         this.dynamoTypes = transform(dynamoColumns, dynamoFullTypeGetter());
         this.columnTypes = transform(dynamoColumns, nativeTypeGetter());
@@ -59,6 +65,6 @@ public class DynamoRecordSet
     @Override
     public RecordCursor cursor()
     {
-        return new DynamoRecordCursor(dynamoClient, tableName, dynamoTypes, columnNames, fetchSize);
+        return new DynamoRecordCursor(dynamoClient, tableName, partitionId, partitionCount, dynamoTypes, columnNames, fetchSize);
     }
 }

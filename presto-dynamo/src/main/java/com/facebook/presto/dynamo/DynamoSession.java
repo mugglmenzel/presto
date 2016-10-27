@@ -13,9 +13,6 @@
  */
 package com.facebook.presto.dynamo;
 
-import java.util.List;
-import java.util.concurrent.ExecutionException;
-
 import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 import com.amazonaws.regions.RegionUtils;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
@@ -24,9 +21,12 @@ import com.amazonaws.services.dynamodbv2.model.ListTablesResult;
 import com.facebook.presto.dynamo.aws.AwsUtils;
 import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
 import com.facebook.presto.dynamo.aws.DynamoColumnAwsMetadata;
+import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.SchemaNotFoundException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableNotFoundException;
+import com.facebook.presto.spi.security.Identity;
+import com.facebook.presto.spi.type.TimeZoneKey;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -34,27 +34,42 @@ import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 
-public class DynamoSession
-{
-    static final String PRESTO_COMMENT_METADATA = "Presto Metadata:";
-    protected final String connectorId;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ExecutionException;
 
-    private DynamoAwsMetadata metadata;
+public class DynamoSession implements ConnectorSession {
+    static final String PRESTO_COMMENT_METADATA = "Presto Metadata:";
+
+    private final String connectorId;
+    private final String queryId;
+    private final Identity identity;
+    private final TimeZoneKey timeZoneKey;
+    private final Locale locale;
+    private final long startTime;
+    private final Map<String, String> properties = new HashMap<>();
+
+
+    protected DynamoAwsMetadata metadata;
 
     private LoadingCache<String, AmazonDynamoDB> clientBySchema;
 
-    public DynamoSession(String connectorId, DynamoAwsMetadata metadata)
-    {
+    public DynamoSession(String connectorId, String queryId, Identity identity, TimeZoneKey timeZoneKey, Locale locale, long startTime, Map<String, String> properties, DynamoAwsMetadata metadata) {
         this.connectorId = connectorId;
-
+        this.queryId = queryId;
+        this.identity = identity;
+        this.timeZoneKey = timeZoneKey;
+        this.locale = locale;
+        this.startTime = startTime;
+        if (properties != null) this.properties.putAll(properties);
         this.metadata = metadata == null ? new DynamoAwsMetadata() : metadata;
 
         clientBySchema = CacheBuilder.newBuilder().build(
-                new CacheLoader<String, AmazonDynamoDB>()
-                {
+                new CacheLoader<String, AmazonDynamoDB>() {
                     @Override
-                    public AmazonDynamoDB load(String key) throws Exception
-                    {
+                    public AmazonDynamoDB load(String key) throws Exception {
                         AmazonDynamoDBClient client = new AmazonDynamoDBClient(
                                 new DefaultAWSCredentialsProviderChain()
                                         .getCredentials());
@@ -65,29 +80,23 @@ public class DynamoSession
                 });
     }
 
-    private AmazonDynamoDB getClient(String schemaName)
-    {
+    public AmazonDynamoDB getClient(String schemaName) {
         try {
             return clientBySchema.get(schemaName);
-        }
-        catch (ExecutionException | UncheckedExecutionException e) {
+        } catch (ExecutionException | UncheckedExecutionException e) {
             throw Throwables.propagate(e.getCause());
         }
     }
 
-    public List<String> getAllSchemas()
-    {
+    public List<String> getAllSchemas() {
         return this.metadata.getRegionsAsSchemaNames();
     }
 
     public List<String> getAllTables(String schema)
-            throws SchemaNotFoundException
-    {
-        return executeWithClient(schema, new ClientCallable<List<String>>()
-        {
+            throws SchemaNotFoundException {
+        return executeWithClient(schema, new ClientCallable<List<String>>() {
             @Override
-            public List<String> executeWithClient(AmazonDynamoDB client)
-            {
+            public List<String> executeWithClient(AmazonDynamoDB client) {
                 ListTablesResult tables = client.listTables();
                 return tables.getTableNames();
             }
@@ -95,31 +104,29 @@ public class DynamoSession
     }
 
     public DynamoTable getTable(SchemaTableName tableName)
-            throws TableNotFoundException
-    {
+            throws TableNotFoundException {
         return DynamoTable.getTable(metadata, connectorId,
                 tableName.getSchemaName(), tableName.getTableName());
     }
 
     private DynamoColumnHandle buildColumnHandle(
             DynamoColumnAwsMetadata columnMeta, boolean partitionKey,
-            boolean clusteringKey, int ordinalPosition, boolean hidden)
-    {
+            boolean clusteringKey, int ordinalPosition, boolean hidden) {
         DynamoType dynamoType = columnMeta.getColumnType();
         List<DynamoType> typeArguments = null;
         if (dynamoType != null && dynamoType.getTypeArgumentSize() > 0) {
             List<DynamoType> typeArgs = columnMeta.getTypeArguments();
             switch (dynamoType.getTypeArgumentSize()) {
-            case 1:
-                typeArguments = ImmutableList.of(typeArgs.get(0));
-                break;
-            case 2:
-                typeArguments = ImmutableList.of(typeArgs.get(0),
-                        typeArgs.get(1));
-                break;
-            default:
-                throw new IllegalArgumentException("Invalid type arguments: "
-                        + typeArgs);
+                case 1:
+                    typeArguments = ImmutableList.of(typeArgs.get(0));
+                    break;
+                case 2:
+                    typeArguments = ImmutableList.of(typeArgs.get(0),
+                            typeArgs.get(1));
+                    break;
+                default:
+                    throw new IllegalArgumentException("Invalid type arguments: "
+                            + typeArgs);
             }
         }
         return new DynamoColumnHandle(connectorId, columnMeta.getColumnName(),
@@ -128,15 +135,13 @@ public class DynamoSession
     }
 
     public <T> T executeWithClient(String schemaName,
-            ClientCallable<T> clientCallable)
-    {
+                                   ClientCallable<T> clientCallable) {
         Exception lastException = null;
         for (int i = 0; i < 2; i++) {
             AmazonDynamoDB client = getClient(schemaName);
             try {
                 return clientCallable.executeWithClient(client);
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 lastException = e;
 
                 // Something happened with our client connection. We need to
@@ -147,8 +152,45 @@ public class DynamoSession
         throw new RuntimeException(lastException);
     }
 
-    private interface ClientCallable<T>
-    {
+    public String getConnectorId() {
+        return connectorId;
+    }
+
+    @Override
+    public String getQueryId() {
+        return queryId;
+    }
+
+    @Override
+    public Identity getIdentity() {
+        return identity;
+    }
+
+    @Override
+    public TimeZoneKey getTimeZoneKey() {
+        return timeZoneKey;
+    }
+
+    @Override
+    public Locale getLocale() {
+        return locale;
+    }
+
+    @Override
+    public long getStartTime() {
+        return startTime;
+    }
+
+    @Override
+    public <T> T getProperty(String name, Class<T> type) {
+        return type.cast(properties.get(name));
+    }
+
+    public DynamoAwsMetadata getMetadata() {
+        return metadata;
+    }
+
+    private interface ClientCallable<T> {
         T executeWithClient(AmazonDynamoDB client);
     }
 }

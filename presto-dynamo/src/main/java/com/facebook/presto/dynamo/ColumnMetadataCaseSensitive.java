@@ -16,23 +16,19 @@ package com.facebook.presto.dynamo;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.type.Type;
 
-public class ColumnMetadataCaseSensitive extends ColumnMetadata
-{
+public class ColumnMetadataCaseSensitive extends ColumnMetadata {
     private String caseSensitiveName;
 
-    public ColumnMetadataCaseSensitive(String name, Type type,
-            int ordinalPosition, boolean partitionKey, String comment,
-            boolean hidden)
-    {
-        super("[DummyName]", type, ordinalPosition, partitionKey, comment,
+    public ColumnMetadataCaseSensitive(String name, Type type, String comment,
+                                       boolean hidden) {
+        super("[DummyName]", type, comment,
                 hidden);
 
         caseSensitiveName = name;
     }
 
     @Override
-    public String getName()
-    {
+    public String getName() {
         return caseSensitiveName;
     }
 }

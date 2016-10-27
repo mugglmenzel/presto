@@ -17,8 +17,12 @@ import static com.facebook.presto.spi.type.TimeZoneKey.UTC_KEY;
 import static java.util.Locale.ENGLISH;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.metadata.SessionPropertyManager;
+import com.facebook.presto.spi.security.Identity;
 import com.facebook.presto.tests.DistributedQueryRunner;
 import com.google.common.collect.ImmutableMap;
+
+import java.util.Optional;
 
 public final class DynamoQueryRunner
 {
@@ -49,8 +53,8 @@ public final class DynamoQueryRunner
 
     public static Session createDynamoSession(String schema)
     {
-        return Session.builder()
-                .setUser("user")
+        return Session.builder(new SessionPropertyManager())
+                .setIdentity(new Identity("user", Optional.empty()))
                 .setSource("test")
                 .setCatalog("dynamo")
                 .setSchema(schema)

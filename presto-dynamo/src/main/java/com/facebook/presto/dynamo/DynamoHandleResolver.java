@@ -13,79 +13,50 @@
  */
 package com.facebook.presto.dynamo;
 
-import static com.google.common.base.MoreObjects.toStringHelper;
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.facebook.presto.spi.*;
 
 import javax.inject.Inject;
 
-import com.facebook.presto.spi.ColumnHandle;
-import com.facebook.presto.spi.ConnectorHandleResolver;
-import com.facebook.presto.spi.ConnectorOutputTableHandle;
-import com.facebook.presto.spi.ConnectorSplit;
-import com.facebook.presto.spi.ConnectorTableHandle;
+import static com.google.common.base.MoreObjects.toStringHelper;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 
 public class DynamoHandleResolver
-    implements ConnectorHandleResolver
-{
+        implements ConnectorHandleResolver {
     private final String connectorId;
 
     @Inject
-    public DynamoHandleResolver(DynamoConnectorId connectorId)
-    {
+    public DynamoHandleResolver(DynamoConnectorId connectorId) {
         this.connectorId = checkNotNull(connectorId, "connectorId is null").toString();
     }
 
     @Override
-    public boolean canHandle(ConnectorTableHandle tableHandle)
-    {
-        return tableHandle instanceof DynamoTableHandle && ((DynamoTableHandle) tableHandle).getConnectorId().equals(connectorId);
+    public Class<? extends ConnectorTableLayoutHandle> getTableLayoutHandleClass() {
+        return DynamoTableLayoutHandle.class;
     }
 
     @Override
-    public boolean canHandle(ColumnHandle columnHandle)
-    {
-        return columnHandle instanceof DynamoColumnHandle && ((DynamoColumnHandle) columnHandle).getConnectorId().equals(connectorId);
-    }
-
-    @Override
-    public boolean canHandle(ConnectorSplit split)
-    {
-        return split instanceof DynamoSplit && ((DynamoSplit) split).getConnectorId().equals(connectorId);
-    }
-
-    @Override
-    public boolean canHandle(ConnectorOutputTableHandle tableHandle)
-    {
-        return (tableHandle instanceof DynamoOutputTableHandle) && ((DynamoOutputTableHandle) tableHandle).getConnectorId().equals(connectorId);
-    }
-
-    @Override
-    public Class<? extends ConnectorTableHandle> getTableHandleClass()
-    {
+    public Class<? extends ConnectorTableHandle> getTableHandleClass() {
         return DynamoTableHandle.class;
     }
 
     @Override
-    public Class<? extends ColumnHandle> getColumnHandleClass()
-    {
+    public Class<? extends ColumnHandle> getColumnHandleClass() {
         return DynamoColumnHandle.class;
     }
 
     @Override
-    public Class<? extends ConnectorSplit> getSplitClass()
-    {
+    public Class<? extends ConnectorSplit> getSplitClass() {
         return DynamoSplit.class;
     }
 
     @Override
-    public Class<? extends ConnectorOutputTableHandle> getOutputTableHandleClass()
-    {
+    public Class<? extends ConnectorOutputTableHandle> getOutputTableHandleClass() {
         return DynamoOutputTableHandle.class;
     }
 
     @Override
-    public String toString()
-    {
+    public String toString() {
         return toStringHelper(this)
                 .add("connectorId", connectorId)
                 .toString();

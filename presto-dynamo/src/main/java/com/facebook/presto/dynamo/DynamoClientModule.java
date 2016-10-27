@@ -13,6 +13,22 @@
  */
 package com.facebook.presto.dynamo;
 
+import com.facebook.presto.dynamo.aws.*;
+import com.facebook.presto.spi.security.Identity;
+import com.facebook.presto.spi.type.TimeZoneKey;
+import com.google.common.collect.ImmutableMap;
+import com.google.inject.Binder;
+import com.google.inject.Module;
+import com.google.inject.Provides;
+import com.google.inject.Scopes;
+import io.airlift.json.JsonCodec;
+
+import javax.inject.Singleton;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+
 import static com.google.common.base.Preconditions.checkNotNull;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.airlift.configuration.ConfigBinder.configBinder;
@@ -20,36 +36,17 @@ import static io.airlift.json.JsonCodecBinder.jsonCodecBinder;
 import static java.util.concurrent.Executors.newFixedThreadPool;
 import static org.weakref.jmx.ObjectNames.generatedNameOf;
 import static org.weakref.jmx.guice.ExportBinder.newExporter;
-import io.airlift.json.JsonCodec;
-
-import java.util.List;
-import java.util.concurrent.ExecutorService;
-
-import javax.inject.Singleton;
-
-import com.facebook.presto.dynamo.aws.CachingDynamoAwsMetadataProvider;
-import com.facebook.presto.dynamo.aws.DefaultDynamoAwsClientProvider;
-import com.facebook.presto.dynamo.aws.DynamoAwsClientProvider;
-import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
-import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
-import com.google.inject.Binder;
-import com.google.inject.Module;
-import com.google.inject.Provides;
-import com.google.inject.Scopes;
 
 public class DynamoClientModule
-        implements Module
-{
+        implements Module {
     private final String connectorId;
 
-    public DynamoClientModule(String connectorId)
-    {
+    public DynamoClientModule(String connectorId) {
         this.connectorId = connectorId;
     }
 
     @Override
-    public void configure(Binder binder)
-    {
+    public void configure(Binder binder) {
         configBinder(binder).bindConfig(DynamoClientConfig.class);
 
         binder.bind(DynamoAwsClientProvider.class).to(DefaultDynamoAwsClientProvider.class).in(Scopes.SINGLETON);
@@ -80,8 +77,7 @@ public class DynamoClientModule
     @ForDynamo
     @Singleton
     @Provides
-    public static ExecutorService createCachingDynamoSchemaExecutor(DynamoConnectorId clientId, DynamoClientConfig dynamoClientConfig)
-    {
+    public static ExecutorService createCachingDynamoSchemaExecutor(DynamoConnectorId clientId, DynamoClientConfig dynamoClientConfig) {
         return newFixedThreadPool(
                 dynamoClientConfig.getMaxSchemaRefreshThreads(),
                 daemonThreadsNamed("dynamo-" + clientId + "-%s"));
@@ -92,14 +88,18 @@ public class DynamoClientModule
     public static DynamoSession createDynamoSession(
             DynamoConnectorId connectorId,
             DynamoClientConfig config,
-            JsonCodec<List<ExtraColumnMetadata>> extraColumnMetadataCodec)
-    {
+            JsonCodec<List<ExtraColumnMetadata>> extraColumnMetadataCodec) {
         checkNotNull(config, "config is null");
         checkNotNull(extraColumnMetadataCodec, "extraColumnMetadataCodec is null");
 
         // TODO load DynamoMetadata from file
         return new DynamoSession(
                 connectorId.toString(),
+                "",
+                new Identity(config.getUsername(), Optional.empty()),
+                TimeZoneKey.UTC_KEY,
+                Locale.ENGLISH,
+                System.currentTimeMillis(), ImmutableMap.of(),
                 new DynamoAwsMetadata());
     }
 }

@@ -242,10 +242,6 @@
             <scope>test</scope>
         </dependency>
 
-        <dependency>
-            <groupId>org.jetbrains</groupId>
-            <artifactId>annotations</artifactId>
-        </dependency>
     </dependencies>
 
     <build>
@@ -302,6 +298,13 @@
                             <artifactId>cassandra-unit</artifactId>
                         </dependency>
                     </ignoredDependencies>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.gaul</groupId>
+                <artifactId>modernizer-maven-plugin</artifactId>
+                <configuration>
+                    <failOnViolations>false</failOnViolations>
                 </configuration>
             </plugin>
         </plugins>

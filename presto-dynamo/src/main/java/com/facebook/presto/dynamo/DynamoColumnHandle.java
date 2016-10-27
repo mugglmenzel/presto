@@ -135,7 +135,7 @@ public class DynamoColumnHandle
 
     public ColumnMetadata getColumnMetadata()
     {
-        return new ColumnMetadataCaseSensitive(name, dynamoType.getNativeType(), ordinalPosition, hashKey, null, hidden);
+        return new ColumnMetadataCaseSensitive(name, dynamoType.getNativeType(), null, hidden);
     }
 
     public Type getType()

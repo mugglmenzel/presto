@@ -18,6 +18,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.facebook.presto.dynamo.DynamoClientConfig;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 //JSON Example
@@ -75,13 +76,14 @@ public class DynamoAwsMetadata
         return tables;
     }
 
-    public void setTables(List<DynamoTableAwsMetadata> tables)
+    public DynamoAwsMetadata setTables(List<DynamoTableAwsMetadata> tables)
     {
         if (tables == null) {
             tables = new ArrayList<DynamoTableAwsMetadata>();
         }
 
         this.tables = tables;
+        return this;
     }
 
     public List<String> getRegionsAsSchemaNames()

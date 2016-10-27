@@ -13,47 +13,49 @@
  */
 package com.facebook.presto.dynamo;
 
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
+import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
+import com.facebook.presto.spi.ColumnHandle;
+import com.facebook.presto.spi.ConnectorSession;
+import com.facebook.presto.spi.ConnectorSplit;
+import com.facebook.presto.spi.RecordSet;
+import com.facebook.presto.spi.connector.*;
+import com.google.common.collect.ImmutableList;
+import io.airlift.log.Logger;
+
+import javax.inject.Inject;
+import java.util.List;
+
 import static com.facebook.presto.dynamo.util.Types.checkType;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.collect.Iterables.transform;
-import io.airlift.log.Logger;
-
-import java.util.List;
-
-import javax.inject.Inject;
-
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
-import com.facebook.presto.dynamo.aws.DynamoAwsClientProvider;
-import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
-import com.facebook.presto.spi.ColumnHandle;
-import com.facebook.presto.spi.ConnectorRecordSetProvider;
-import com.facebook.presto.spi.ConnectorSplit;
-import com.facebook.presto.spi.RecordSet;
-import com.google.common.collect.ImmutableList;
 
 public class DynamoRecordSetProvider
-        implements ConnectorRecordSetProvider
-{
+        implements ConnectorRecordSetProvider {
     private static final Logger log = Logger.get(ConnectorRecordSetProvider.class);
 
     private final String connectorId;
     private DynamoClientConfig config;
-    private final DynamoAwsClientProvider dynamoClientProvider;
     private final DynamoAwsMetadataProvider schemaProvider;
 
     @Inject
-    public DynamoRecordSetProvider(DynamoConnectorId connectorId, DynamoClientConfig config, DynamoAwsClientProvider dynamoClientProvider, DynamoAwsMetadataProvider schemaProvider)
-    {
+    public DynamoRecordSetProvider(DynamoConnectorId connectorId, DynamoClientConfig config, DynamoAwsMetadataProvider schemaProvider) {
         this.connectorId = checkNotNull(connectorId, "connectorId is null").toString();
         this.config = checkNotNull(config, "config is null");
-        this.dynamoClientProvider = checkNotNull(dynamoClientProvider, "dynamoClientProvider is null");
         this.schemaProvider = schemaProvider;
     }
 
     @Override
-    public RecordSet getRecordSet(ConnectorSplit split, List<? extends ColumnHandle> columns)
-    {
+    public String toString() {
+        return toStringHelper(this)
+                .add("connectorId", connectorId)
+                .toString();
+    }
+
+    @Override
+    public RecordSet getRecordSet(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorSplit split, List<? extends ColumnHandle> columns) {
+        DynamoSession dynamoSession = checkType(session, DynamoSession.class, "session");
         DynamoSplit dynamoSplit = checkType(split, DynamoSplit.class, "split");
 
         checkNotNull(columns, "columns is null");
@@ -65,20 +67,11 @@ public class DynamoRecordSetProvider
         String tableName = dynamoSplit.getTable();
         try {
             tableName = schemaProvider.getMetadata().getAwsTableName(schema, tableName);
-        }
-        catch (IllegalArgumentException ex) {
+        } catch (IllegalArgumentException ex) {
             log.debug(ex, "Invalid schema for AWS region: " + schema);
         }
 
-        AmazonDynamoDB dynamoClient = dynamoClientProvider.getClient(schema);
-        return new DynamoRecordSet(dynamoClient, tableName, dynamoColumns, config.getFetchSize());
-    }
-
-    @Override
-    public String toString()
-    {
-        return toStringHelper(this)
-                .add("connectorId", connectorId)
-                .toString();
+        AmazonDynamoDB dynamoClient = dynamoSession.getClient(schema);
+        return new DynamoRecordSet(dynamoClient, tableName, dynamoSplit.getPartitionId(), dynamoSplit.getPartitionCount(), dynamoColumns, config.getFetchSize());
     }
 }

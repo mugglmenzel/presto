@@ -13,18 +13,26 @@
  */
 package com.facebook.presto.dynamo;
 
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
-
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
+import com.facebook.presto.dynamo.aws.DynamoColumnAwsMetadata;
+import com.facebook.presto.dynamo.aws.DynamoTableAwsMetadata;
 import com.facebook.presto.spi.SchemaNotFoundException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableNotFoundException;
+import com.facebook.presto.spi.security.Identity;
+import com.facebook.presto.spi.type.TimeZoneKey;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class MockDynamoSession
-        extends DynamoSession
-{
+        extends DynamoSession {
     static final String TEST_SCHEMA = "testkeyspace";
     static final String BAD_SCHEMA = "badkeyspace";
     static final String TEST_TABLE = "testtbl";
@@ -36,25 +44,29 @@ public class MockDynamoSession
     private final AtomicInteger accessCount = new AtomicInteger();
     private boolean throwException;
 
-    public MockDynamoSession(String connectorId, DynamoClientConfig config)
-    {
+    public MockDynamoSession(String connectorId, DynamoClientConfig config) {
         super(connectorId,
-                new DynamoAwsMetadata());
+                "", new Identity("user", Optional.empty()),
+                TimeZoneKey.UTC_KEY, Locale.ENGLISH, System.currentTimeMillis(), ImmutableMap.of(),
+                null);
+        this.metadata = getAwsMetadata();
     }
 
-    public void setThrowException(boolean throwException)
-    {
+    public void setThrowException(boolean throwException) {
         this.throwException = throwException;
     }
 
-    public int getAccessCount()
-    {
+    public int getAccessCount() {
         return accessCount.get();
     }
 
     @Override
-    public List<String> getAllSchemas()
-    {
+    public AmazonDynamoDB getClient(String schemaName) {
+        return new MockAmazonDynamoDB();
+    }
+
+    @Override
+    public List<String> getAllSchemas() {
         accessCount.incrementAndGet();
 
         if (throwException) {
@@ -65,8 +77,7 @@ public class MockDynamoSession
 
     @Override
     public List<String> getAllTables(String schema)
-            throws SchemaNotFoundException
-    {
+            throws SchemaNotFoundException {
         accessCount.incrementAndGet();
         if (throwException) {
             throw new IllegalStateException();
@@ -80,8 +91,7 @@ public class MockDynamoSession
 
     @Override
     public DynamoTable getTable(SchemaTableName tableName)
-            throws TableNotFoundException
-    {
+            throws TableNotFoundException {
         accessCount.incrementAndGet();
         if (throwException) {
             throw new IllegalStateException();
@@ -89,11 +99,38 @@ public class MockDynamoSession
 
         if (tableName.getSchemaName().equals(TEST_SCHEMA) && tableName.getTableName().equals(TEST_TABLE)) {
             return new DynamoTable(
-                    new DynamoTableHandle(connectorId, TEST_SCHEMA, TEST_TABLE),
+                    new DynamoTableHandle(getConnectorId(), TEST_SCHEMA, TEST_TABLE),
                     ImmutableList.of(
-                            new DynamoColumnHandle(connectorId, TEST_COLUMN1, 0, DynamoType.STRING, null, true, false, false, false),
-                            new DynamoColumnHandle(connectorId, TEST_COLUMN2, 0, DynamoType.LONG, null, false, false, false, false)));
+                            new DynamoColumnHandle(getConnectorId(), TEST_COLUMN1, 0, DynamoType.STRING, null, true, false, false, false),
+                            new DynamoColumnHandle(getConnectorId(), TEST_COLUMN2, 0, DynamoType.LONG, null, false, false, false, false)));
         }
         throw new TableNotFoundException(tableName);
+    }
+
+    public DynamoAwsMetadata getAwsMetadata() {
+        return new DynamoAwsMetadata().setTables(getAwsTablesMetadata());
+    }
+
+    private List<DynamoTableAwsMetadata> getAwsTablesMetadata() {
+        List<DynamoTableAwsMetadata> awsTabs = new ArrayList<>();
+        for (String schema : getAllSchemas()) {
+            for (String table : getAllTables(schema)) {
+
+                DynamoTable tab = getTable(new SchemaTableName(schema, table));
+                List<DynamoColumnAwsMetadata> cols = new ArrayList<>();
+                for (DynamoColumnHandle col : tab.getColumns()) {
+                    DynamoColumnAwsMetadata awsCol = new DynamoColumnAwsMetadata();
+                    awsCol.setColumnName(col.getName());
+                    awsCol.setColumnType(col.getDynamoType());
+                    cols.add(awsCol);
+                }
+                DynamoTableAwsMetadata awsMeta = new DynamoTableAwsMetadata();
+                awsMeta.setRegion(schema);
+                awsMeta.setTableName(table);
+                awsMeta.setColumns(cols);
+                awsTabs.add(awsMeta);
+            }
+        }
+        return awsTabs;
     }
 }

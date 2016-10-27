@@ -86,20 +86,13 @@ public class DynamoRecordSink
     }
 
     @Override
-    public void beginRecord(long sampleWeight)
+    public void beginRecord()
     {
         checkState(field == -1, "already in record");
 
         field = 0;
         values.clear();
         values.add(UUID.randomUUID());
-
-        if (sampled) {
-            values.add(sampleWeight);
-        }
-        else {
-            checkArgument(sampleWeight == 1, "Sample weight must be 1 when sampling is disabled");
-        }
     }
 
     @Override
@@ -145,6 +138,11 @@ public class DynamoRecordSink
     public void appendString(byte[] value)
     {
         append(new String(value, UTF_8));
+    }
+
+    @Override
+    public void appendObject(Object value) {
+
     }
 
     @Override

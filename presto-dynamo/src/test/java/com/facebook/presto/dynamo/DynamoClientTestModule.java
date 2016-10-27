@@ -18,9 +18,15 @@ import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.airlift.configuration.ConfigurationModule.bindConfig;
 import static io.airlift.json.JsonCodecBinder.jsonCodecBinder;
 import static java.util.concurrent.Executors.newFixedThreadPool;
+
+import com.facebook.presto.spi.security.Identity;
+import com.facebook.presto.spi.type.TimeZoneKey;
+import com.google.common.collect.ImmutableMap;
 import io.airlift.json.JsonCodec;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 
 import javax.inject.Singleton;
@@ -90,6 +96,11 @@ public class DynamoClientTestModule
         // TODO load DynamoMetadata from file
         return new DynamoSession(
                 connectorId.toString(),
+                "",
+                new Identity("user", Optional.empty()),
+                TimeZoneKey.UTC_KEY,
+                Locale.ENGLISH,
+                System.currentTimeMillis(), ImmutableMap.of(),
                 new DynamoAwsMetadata());
     }
 

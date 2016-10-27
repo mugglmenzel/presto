@@ -13,7 +13,12 @@
  */
 package com.facebook.presto.dynamo;
 
-import static io.airlift.slice.Slices.utf8Slice;
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
+import com.amazonaws.services.dynamodbv2.model.AttributeValue;
+import com.amazonaws.services.dynamodbv2.model.ScanRequest;
+import com.amazonaws.services.dynamodbv2.model.ScanResult;
+import com.facebook.presto.spi.RecordCursor;
+import com.facebook.presto.spi.type.Type;
 import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 
@@ -21,19 +26,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
-import com.amazonaws.services.dynamodbv2.model.AttributeValue;
-import com.amazonaws.services.dynamodbv2.model.ScanRequest;
-import com.amazonaws.services.dynamodbv2.model.ScanResult;
-import com.facebook.presto.spi.RecordCursor;
-import com.facebook.presto.spi.type.Type;
+import static io.airlift.slice.Slices.utf8Slice;
 
-public class DynamoRecordCursor implements RecordCursor
-{
+public class DynamoRecordCursor implements RecordCursor {
     private static final Logger log = Logger.get(DynamoRecordCursor.class);
 
     private final AmazonDynamoDB dynamo;
     private final String tableName;
+    private final Integer partitionId;
+    private final Integer partitionCount;
     private final List<FullDynamoType> fullDynamoTypes;
     private final List<String> columnNames;
     private final int fetchSize;
@@ -45,13 +46,14 @@ public class DynamoRecordCursor implements RecordCursor
 
     private Map<String, AttributeValue> lastKeyEvaluated = null;
 
-    public DynamoRecordCursor(AmazonDynamoDB dynamo, String tableName,
-            List<FullDynamoType> fullDynamoTypes, List<String> columnNames,
-            int fetchSize)
-    {
+    public DynamoRecordCursor(AmazonDynamoDB dynamo, String tableName, Integer partitionId, Integer partitionCount,
+                              List<FullDynamoType> fullDynamoTypes, List<String> columnNames,
+                              int fetchSize) {
         this.dynamo = dynamo;
 
         this.tableName = tableName;
+        this.partitionId = partitionId;
+        this.partitionCount = partitionCount;
         this.fullDynamoTypes = fullDynamoTypes;
         this.columnNames = columnNames;
         this.fetchSize = fetchSize;
@@ -60,12 +62,12 @@ public class DynamoRecordCursor implements RecordCursor
     }
 
     @Override
-    public boolean advanceNextPosition()
-    {
+    public boolean advanceNextPosition() {
         if (currentRowIndex == -1) {
             log.info(String.format("Doing first scan for dynamo table %s",
                     tableName));
             ScanRequest scanRequest = new ScanRequest()
+                    .withSegment(partitionId).withTotalSegments(partitionCount)
                     .withTableName(tableName).withLimit(fetchSize)
                     .withExclusiveStartKey(lastKeyEvaluated);
             ScanResult scanResult = dynamo.scan(scanRequest);
@@ -79,24 +81,22 @@ public class DynamoRecordCursor implements RecordCursor
 
             if (items.size() == 0) {
                 return false;
-            }
-            else {
+            } else {
                 currentRowIndexBase = 0;
                 currentRowIndex = currentRowIndexBase;
                 currentRow = rs
                         .get((int) (currentRowIndex - currentRowIndexBase));
                 return true;
             }
-        }
-        else if (currentRowIndex - currentRowIndexBase < rs.size() - 1) {
+        } else if (currentRowIndex - currentRowIndexBase < rs.size() - 1) {
             currentRowIndex++;
             currentRow = rs.get((int) (currentRowIndex - currentRowIndexBase));
             return true;
-        }
-        else if (lastKeyEvaluated != null) {
+        } else if (lastKeyEvaluated != null) {
             log.info(String.format("Doing next scan for dynamo table %s",
                     tableName));
             ScanRequest scanRequest = new ScanRequest()
+                    .withSegment(partitionId).withTotalSegments(partitionCount)
                     .withTableName(tableName).withLimit(fetchSize)
                     .withExclusiveStartKey(lastKeyEvaluated);
             ScanResult scanResult = dynamo.scan(scanRequest);
@@ -109,93 +109,85 @@ public class DynamoRecordCursor implements RecordCursor
 
             if (items.size() == 0) {
                 return false;
-            }
-            else {
+            } else {
                 currentRowIndexBase = currentRowIndex + 1;
                 currentRowIndex = currentRowIndexBase;
                 currentRow = rs
                         .get((int) (currentRowIndex - currentRowIndexBase));
                 return true;
             }
-        }
-        else {
+        } else {
             log.info(String.format("Hit end for dynamo table %s", tableName));
             return false;
         }
     }
 
     @Override
-    public void close()
-    {
+    public void close() {
     }
 
     @Override
-    public boolean getBoolean(int i)
-    {
+    public boolean getBoolean(int i) {
         String columnName = columnNames.get(i);
         return currentRow.get(columnName).getBOOL();
     }
 
     @Override
-    public long getCompletedBytes()
-    {
+    public long getCompletedBytes() {
         return currentRowIndex + 1;
     }
 
     @Override
-    public long getReadTimeNanos()
-    {
+    public long getReadTimeNanos() {
         return 0;
     }
 
     @Override
-    public double getDouble(int i)
-    {
+    public double getDouble(int i) {
         String columnName = columnNames.get(i);
         return Double.parseDouble(currentRow.get(columnName).getS());
     }
 
     @Override
-    public long getLong(int i)
-    {
+    public long getLong(int i) {
         String columnName = columnNames.get(i);
         return Long.parseLong(currentRow.get(columnName).getN());
     }
 
-    private DynamoType getDynamoType(int i)
-    {
+    @Override
+    public Object getObject(int i) {
+        String columnName = columnNames.get(i);
+        return currentRow.get(columnName).getS();
+    }
+
+    private DynamoType getDynamoType(int i) {
         return fullDynamoTypes.get(i).getDynamoType();
     }
 
     @Override
-    public Slice getSlice(int i)
-    {
+    public Slice getSlice(int i) {
         String columnName = columnNames.get(i);
         Comparable<?> columnValue = DynamoType.getColumnValue(currentRow, columnName,
                 fullDynamoTypes.get(i));
         if (columnValue == null) {
             return utf8Slice("");
-        }
-        else {
+        } else {
             return utf8Slice(columnValue.toString());
         }
     }
 
     @Override
-    public long getTotalBytes()
-    {
+    public long getTotalBytes() {
         return rs.size();
     }
 
     @Override
-    public Type getType(int i)
-    {
+    public Type getType(int i) {
         return getDynamoType(i).getNativeType();
     }
 
     @Override
-    public boolean isNull(int i)
-    {
+    public boolean isNull(int i) {
         String columnName = columnNames.get(i);
         AttributeValue attValue = currentRow.get(columnName);
         return attValue == null

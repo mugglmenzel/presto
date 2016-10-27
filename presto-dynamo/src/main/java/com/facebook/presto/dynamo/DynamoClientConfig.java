@@ -13,25 +13,23 @@
  */
 package com.facebook.presto.dynamo;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import com.google.common.base.Splitter;
 import io.airlift.configuration.Config;
 import io.airlift.configuration.ConfigDescription;
 import io.airlift.units.Duration;
 import io.airlift.units.MaxDuration;
 import io.airlift.units.MinDuration;
 
+import javax.validation.constraints.Min;
+import javax.validation.constraints.NotNull;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-import javax.validation.constraints.Min;
-import javax.validation.constraints.NotNull;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
-import com.google.common.base.Splitter;
-
-public class DynamoClientConfig
-{
+public class DynamoClientConfig {
     private Duration schemaCacheTtl = new Duration(1, TimeUnit.HOURS);
     private Duration schemaRefreshInterval = new Duration(2, TimeUnit.MINUTES);
     private int maxSchemaRefreshThreads = 10;
@@ -41,6 +39,7 @@ public class DynamoClientConfig
     private int nativeProtocolPort = 9042;
     private int partitionSizeForBatchSelect = 100;
     private int splitSize = 1_024;
+    private int minSplitCount = 2;
     private Map<String, String> transportFactoryOptions = new HashMap<>();
     private boolean allowDropTable;
     private String username;
@@ -53,136 +52,127 @@ public class DynamoClientConfig
     private String metadataFile;
 
     @Min(0)
-    public int getLimitForPartitionKeySelect()
-    {
+    public int getLimitForPartitionKeySelect() {
         return limitForPartitionKeySelect;
     }
 
     @Config("dynamo.limit-for-partition-key-select")
     public DynamoClientConfig setLimitForPartitionKeySelect(
-            int limitForPartitionKeySelect)
-    {
+            int limitForPartitionKeySelect) {
         this.limitForPartitionKeySelect = limitForPartitionKeySelect;
         return this;
     }
 
     @Min(1)
-    public int getMaxSchemaRefreshThreads()
-    {
+    public int getMaxSchemaRefreshThreads() {
         return maxSchemaRefreshThreads;
     }
 
     @Config("dynamo.max-schema-refresh-threads")
     public DynamoClientConfig setMaxSchemaRefreshThreads(
-            int maxSchemaRefreshThreads)
-    {
+            int maxSchemaRefreshThreads) {
         this.maxSchemaRefreshThreads = maxSchemaRefreshThreads;
         return this;
     }
 
     @NotNull
-    public Duration getSchemaCacheTtl()
-    {
+    public Duration getSchemaCacheTtl() {
         return schemaCacheTtl;
     }
 
     @Config("dynamo.schema-cache-ttl")
-    public DynamoClientConfig setSchemaCacheTtl(Duration schemaCacheTtl)
-    {
+    public DynamoClientConfig setSchemaCacheTtl(Duration schemaCacheTtl) {
         this.schemaCacheTtl = schemaCacheTtl;
         return this;
     }
 
     @NotNull
-    public Duration getSchemaRefreshInterval()
-    {
+    public Duration getSchemaRefreshInterval() {
         return schemaRefreshInterval;
     }
 
     @Config("dynamo.schema-refresh-interval")
     public DynamoClientConfig setSchemaRefreshInterval(
-            Duration schemaRefreshInterval)
-    {
+            Duration schemaRefreshInterval) {
         this.schemaRefreshInterval = schemaRefreshInterval;
         return this;
     }
 
     @Min(1)
-    public int getNativeProtocolPort()
-    {
+    public int getNativeProtocolPort() {
         return nativeProtocolPort;
     }
 
     @Config(("dynamo.native-protocol-port"))
-    public DynamoClientConfig setNativeProtocolPort(int nativeProtocolPort)
-    {
+    public DynamoClientConfig setNativeProtocolPort(int nativeProtocolPort) {
         this.nativeProtocolPort = nativeProtocolPort;
         return this;
     }
 
     @Min(1)
-    public int getFetchSize()
-    {
+    public int getFetchSize() {
         return fetchSize;
     }
 
     @Config("dynamo.fetch-size")
-    public DynamoClientConfig setFetchSize(int fetchSize)
-    {
+    public DynamoClientConfig setFetchSize(int fetchSize) {
         this.fetchSize = fetchSize;
         return this;
     }
 
     @Min(1)
-    public int getFetchSizeForPartitionKeySelect()
-    {
+    public int getFetchSizeForPartitionKeySelect() {
         return fetchSizeForPartitionKeySelect;
     }
 
     @Config("dynamo.fetch-size-for-partition-key-select")
     public DynamoClientConfig setFetchSizeForPartitionKeySelect(
-            int fetchSizeForPartitionKeySelect)
-    {
+            int fetchSizeForPartitionKeySelect) {
         this.fetchSizeForPartitionKeySelect = fetchSizeForPartitionKeySelect;
         return this;
     }
 
     @Min(1)
-    public int getPartitionSizeForBatchSelect()
-    {
+    public int getPartitionSizeForBatchSelect() {
         return partitionSizeForBatchSelect;
     }
 
     @Config("dynamo.partition-size-for-batch-select")
     public DynamoClientConfig setPartitionSizeForBatchSelect(
-            int partitionSizeForBatchSelect)
-    {
+            int partitionSizeForBatchSelect) {
         this.partitionSizeForBatchSelect = partitionSizeForBatchSelect;
         return this;
     }
 
     @Min(1)
-    public int getSplitSize()
-    {
+    public int getSplitSize() {
         return splitSize;
     }
 
     @Config("dynamo.split-size")
-    public DynamoClientConfig setSplitSize(int splitSize)
-    {
+    public DynamoClientConfig setSplitSize(int splitSize) {
         this.splitSize = splitSize;
         return this;
     }
 
-    public Map<String, String> getTransportFactoryOptions()
-    {
+    @Min(1)
+    public int getMinSplitCount() {
+        return minSplitCount;
+    }
+
+    @Config("dynamo.min-split-count")
+    public DynamoClientConfig setMinSplitCount(int minSplitCount) {
+        this.minSplitCount = minSplitCount;
+        return this;
+    }
+
+    public Map<String, String> getTransportFactoryOptions() {
         return transportFactoryOptions;
     }
 
     @Config("dynamo.transport-factory-options")
     public DynamoClientConfig setTransportFactoryOptions(
-            String transportFactoryOptions)
-    {
+            String transportFactoryOptions) {
         checkNotNull(transportFactoryOptions, "transportFactoryOptions is null");
         this.transportFactoryOptions = Splitter.on(',').omitEmptyStrings()
                 .trimResults().withKeyValueSeparator("=")
@@ -190,93 +180,79 @@ public class DynamoClientConfig
         return this;
     }
 
-    public boolean getAllowDropTable()
-    {
+    public boolean getAllowDropTable() {
         return this.allowDropTable;
     }
 
     @Config("dynamo.allow-drop-table")
     @ConfigDescription("Allow hive connector to drop table")
-    public DynamoClientConfig setAllowDropTable(boolean allowDropTable)
-    {
+    public DynamoClientConfig setAllowDropTable(boolean allowDropTable) {
         this.allowDropTable = allowDropTable;
         return this;
     }
 
-    public String getUsername()
-    {
+    public String getUsername() {
         return username;
     }
 
     @Config("dynamo.username")
-    public DynamoClientConfig setUsername(String username)
-    {
+    public DynamoClientConfig setUsername(String username) {
         this.username = username;
         return this;
     }
 
-    public String getPassword()
-    {
+    public String getPassword() {
         return password;
     }
 
     @Config("dynamo.password")
-    public DynamoClientConfig setPassword(String password)
-    {
+    public DynamoClientConfig setPassword(String password) {
         this.password = password;
         return this;
     }
 
     @MinDuration("1ms")
     @MaxDuration("1h")
-    public Duration getClientReadTimeout()
-    {
+    public Duration getClientReadTimeout() {
         return clientReadTimeout;
     }
 
     @Config("dynamo.client.read-timeout")
-    public DynamoClientConfig setClientReadTimeout(Duration clientReadTimeout)
-    {
+    public DynamoClientConfig setClientReadTimeout(Duration clientReadTimeout) {
         this.clientReadTimeout = clientReadTimeout;
         return this;
     }
 
     @MinDuration("1ms")
     @MaxDuration("1h")
-    public Duration getClientConnectTimeout()
-    {
+    public Duration getClientConnectTimeout() {
         return clientConnectTimeout;
     }
 
     @Config("dynamo.client.connect-timeout")
     public DynamoClientConfig setClientConnectTimeout(
-            Duration clientConnectTimeout)
-    {
+            Duration clientConnectTimeout) {
         this.clientConnectTimeout = clientConnectTimeout;
         return this;
     }
 
     @Min(0)
-    public Integer getClientSoLinger()
-    {
+    public Integer getClientSoLinger() {
         return clientSoLinger;
     }
 
     @Config("dynamo.client.so-linger")
-    public DynamoClientConfig setClientSoLinger(Integer clientSoLinger)
-    {
+    public DynamoClientConfig setClientSoLinger(Integer clientSoLinger) {
         this.clientSoLinger = clientSoLinger;
         return this;
     }
 
-    public String getMetadataFile()
-    {
+    public String getMetadataFile() {
         return metadataFile;
     }
 
     @Config("dynamo.metadata-file")
-    public DynamoClientConfig setMetadataFile(String metadataFile)
-    {
+    public DynamoClientConfig setMetadataFile(String metadataFile) {
         this.metadataFile = metadataFile;
         return this;
     }

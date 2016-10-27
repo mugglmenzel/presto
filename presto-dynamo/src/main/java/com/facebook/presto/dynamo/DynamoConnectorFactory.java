@@ -13,48 +13,49 @@
  */
 package com.facebook.presto.dynamo;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Strings.isNullOrEmpty;
-import io.airlift.bootstrap.Bootstrap;
-import io.airlift.json.JsonModule;
-
-import java.lang.management.ManagementFactory;
-import java.util.Map;
-
-import javax.management.MBeanServer;
-
-import org.weakref.jmx.guice.MBeanModule;
-
-import com.facebook.presto.spi.Connector;
-import com.facebook.presto.spi.ConnectorFactory;
+import com.facebook.presto.spi.ConnectorHandleResolver;
+import com.facebook.presto.spi.connector.Connector;
+import com.facebook.presto.spi.connector.ConnectorContext;
+import com.facebook.presto.spi.connector.ConnectorFactory;
 import com.google.common.base.Throwables;
 import com.google.inject.Binder;
 import com.google.inject.Injector;
 import com.google.inject.Module;
+import io.airlift.bootstrap.Bootstrap;
+import io.airlift.json.JsonModule;
+import org.weakref.jmx.guice.MBeanModule;
+
+import javax.management.MBeanServer;
+import java.lang.management.ManagementFactory;
+import java.util.Map;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Strings.isNullOrEmpty;
 
 public class DynamoConnectorFactory
-        implements ConnectorFactory
-{
+        implements ConnectorFactory {
     private final String name;
     private final Map<String, String> optionalConfig;
 
-    public DynamoConnectorFactory(String name, Map<String, String> optionalConfig)
-    {
+    public DynamoConnectorFactory(String name, Map<String, String> optionalConfig) {
         checkArgument(!isNullOrEmpty(name), "name is null or empty");
         this.name = name;
         this.optionalConfig = checkNotNull(optionalConfig, "optionalConfig is null");
     }
 
     @Override
-    public String getName()
-    {
+    public String getName() {
         return name;
     }
 
     @Override
-    public Connector create(String connectorId, Map<String, String> config)
-    {
+    public ConnectorHandleResolver getHandleResolver() {
+        return null;
+    }
+
+    @Override
+    public Connector create(String connectorId, Map<String, String> config, ConnectorContext context) {
         checkNotNull(config, "config is null");
 
         try {
@@ -62,11 +63,9 @@ public class DynamoConnectorFactory
                     new MBeanModule(),
                     new JsonModule(),
                     new DynamoClientModule(connectorId),
-                    new Module()
-                    {
+                    new Module() {
                         @Override
-                        public void configure(Binder binder)
-                        {
+                        public void configure(Binder binder) {
                             MBeanServer platformMBeanServer = ManagementFactory.getPlatformMBeanServer();
                             binder.bind(MBeanServer.class).toInstance(new RebindSafeMBeanServer(platformMBeanServer));
                         }
@@ -77,9 +76,9 @@ public class DynamoConnectorFactory
                     .setOptionalConfigurationProperties(optionalConfig).initialize();
 
             return injector.getInstance(DynamoConnector.class);
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             throw Throwables.propagate(e);
         }
     }
+
 }

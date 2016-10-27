@@ -18,10 +18,13 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.inject.Inject;
 
+
 import com.facebook.presto.spi.ConnectorInsertTableHandle;
 import com.facebook.presto.spi.ConnectorOutputTableHandle;
-import com.facebook.presto.spi.ConnectorRecordSinkProvider;
+import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.RecordSink;
+import com.facebook.presto.spi.connector.ConnectorRecordSinkProvider;
+import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 
 public class DynamoConnectorRecordSinkProvider
         implements ConnectorRecordSinkProvider
@@ -35,8 +38,7 @@ public class DynamoConnectorRecordSinkProvider
     }
 
     @Override
-    public RecordSink getRecordSink(ConnectorOutputTableHandle tableHandle)
-    {
+    public RecordSink getRecordSink(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorOutputTableHandle tableHandle) {
         checkNotNull(tableHandle, "tableHandle is null");
         checkArgument(tableHandle instanceof DynamoOutputTableHandle, "tableHandle is not an instance of DynamoOutputTableHandle");
         DynamoOutputTableHandle handle = (DynamoOutputTableHandle) tableHandle;
@@ -45,8 +47,7 @@ public class DynamoConnectorRecordSinkProvider
     }
 
     @Override
-    public RecordSink getRecordSink(ConnectorInsertTableHandle tableHandle)
-    {
+    public RecordSink getRecordSink(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorInsertTableHandle tableHandle) {
         throw new UnsupportedOperationException();
     }
 }

@@ -13,11 +13,6 @@
  */
 package com.facebook.presto.dynamo;
 
-import static com.google.common.base.MoreObjects.toStringHelper;
-import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.util.List;
-
 import com.facebook.presto.spi.ConnectorSplit;
 import com.facebook.presto.spi.HostAddress;
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -25,11 +20,16 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
+import java.util.List;
+
+import static com.google.common.base.MoreObjects.toStringHelper;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 public class DynamoSplit
-        implements ConnectorSplit
-{
+        implements ConnectorSplit {
     private final String connectorId;
-    private final String partitionId;
+    private final Integer partitionId;
+    private final Integer partitionCount;
     private final List<HostAddress> addresses;
     private final String schema;
     private final String table;
@@ -40,70 +40,69 @@ public class DynamoSplit
             @JsonProperty("connectorId") String connectorId,
             @JsonProperty("schema") String schema,
             @JsonProperty("table") String table,
-            @JsonProperty("partitionId") String partitionId,
+            @JsonProperty("partitionId") Integer partitionId,
+            @JsonProperty("partitionCount") Integer partitionCount,
             @JsonProperty("splitCondition") String splitCondition,
-            @JsonProperty("addresses") List<HostAddress> addresses)
-    {
+            @JsonProperty("addresses") List<HostAddress> addresses) {
         checkNotNull(connectorId, "connectorId is null");
         checkNotNull(schema, "schema is null");
         checkNotNull(table, "table is null");
-        checkNotNull(partitionId, "partitionName is null");
+        checkNotNull(partitionId, "partitionId is null");
+        checkNotNull(partitionCount, "partitionCount is null");
         checkNotNull(addresses, "addresses is null");
 
         this.connectorId = connectorId;
         this.schema = schema;
         this.table = table;
         this.partitionId = partitionId;
+        this.partitionCount = partitionCount;
         this.addresses = ImmutableList.copyOf(addresses);
         this.splitCondition = splitCondition;
     }
 
     @JsonProperty
-    public String getConnectorId()
-    {
+    public String getConnectorId() {
         return connectorId;
     }
 
     @JsonProperty
-    public String getSchema()
-    {
+    public String getSchema() {
         return schema;
     }
 
     @JsonProperty
-    public String getSplitCondition()
-    {
+    public String getSplitCondition() {
         return splitCondition;
     }
 
     @JsonProperty
-    public String getTable()
-    {
+    public String getTable() {
         return table;
     }
 
     @JsonProperty
-    public String getPartitionId()
-    {
+    public Integer getPartitionId() {
         return partitionId;
     }
 
     @JsonProperty
+    public Integer getPartitionCount() {
+        return partitionCount;
+    }
+
+    @JsonProperty
     @Override
-    public List<HostAddress> getAddresses()
-    {
+    public List<HostAddress> getAddresses() {
         return addresses;
     }
 
     @Override
-    public boolean isRemotelyAccessible()
-    {
+    public boolean isRemotelyAccessible() {
         return true;
     }
 
     @Override
-    public Object getInfo()
-    {
+    public Object getInfo() {
         return ImmutableMap.builder()
                 .put("hosts", addresses)
                 .put("schema", schema)
@@ -113,36 +112,20 @@ public class DynamoSplit
     }
 
     @Override
-    public String toString()
-    {
+    public String toString() {
         return toStringHelper(this)
                 .addValue(table)
                 .addValue(partitionId)
                 .toString();
     }
 
-    public String getWhereClause()
-    {
-        if (partitionId.equals(DynamoPartition.UNPARTITIONED_ID)) {
-            if (splitCondition != null) {
-                return " WHERE " + splitCondition;
-            }
-            else {
-                return "";
-            }
-        }
-        else {
-            if (splitCondition != null) {
-                return " WHERE " + partitionId + " AND " + splitCondition;
-            }
-            else {
-                return " WHERE " + partitionId;
-            }
-        }
+    public String getWhereClause() {
+        if (splitCondition != null) {
+            return " WHERE " + splitCondition;
+        } else return "";
     }
 
-    public DynamoTableHandle getDynamoTableHandle()
-    {
+    public DynamoTableHandle getDynamoTableHandle() {
         return new DynamoTableHandle(connectorId, schema, table);
     }
 }
