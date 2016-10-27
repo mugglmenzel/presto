@@ -61,7 +61,7 @@ public class DynamoRecordSetProvider
         checkNotNull(columns, "columns is null");
         List<DynamoColumnHandle> dynamoColumns = ImmutableList.copyOf(transform(columns, DynamoColumnHandle.dynamoColumnHandle()));
 
-        log.debug("Creating record set: %s", dynamoSplit.getTable());
+        log.info("Creating record set: %s", dynamoSplit.getTable());
 
         String schema = dynamoSplit.getSchema();
         String tableName = dynamoSplit.getTable();

@@ -57,7 +57,7 @@ public class DynamoClientModule
         //        new Duration(5, TimeUnit.MINUTES),
         //        new Duration(1, TimeUnit.MINUTES),
         //        "/tmp/dynamo-metadata.json");
-        binder.bind(DynamoAwsMetadataProvider.class).to(CachingDynamoAwsMetadataProvider.class);
+        binder.bind(DynamoAwsMetadataProvider.class).to(LiveDynamoAwsMetadataProvider.class);
 
         binder.bind(DynamoConnectorId.class).toInstance(new DynamoConnectorId(connectorId));
         binder.bind(DynamoConnector.class).in(Scopes.SINGLETON);
@@ -68,8 +68,8 @@ public class DynamoClientModule
         binder.bind(DynamoHandleResolver.class).in(Scopes.SINGLETON);
         binder.bind(DynamoConnectorRecordSinkProvider.class).in(Scopes.SINGLETON);
 
-        binder.bind(CachingDynamoAwsMetadataProvider.class).in(Scopes.SINGLETON);
-        newExporter(binder).export(CachingDynamoAwsMetadataProvider.class).as(generatedNameOf(CachingDynamoAwsMetadataProvider.class, connectorId));
+        binder.bind(LiveDynamoAwsMetadataProvider.class).in(Scopes.SINGLETON);
+        newExporter(binder).export(LiveDynamoAwsMetadataProvider.class).as(generatedNameOf(LiveDynamoAwsMetadataProvider.class, connectorId));
 
         jsonCodecBinder(binder).bindListJsonCodec(ExtraColumnMetadata.class);
     }
@@ -96,7 +96,7 @@ public class DynamoClientModule
         return new DynamoSession(
                 connectorId.toString(),
                 "",
-                new Identity(config.getUsername(), Optional.empty()),
+                new Identity(Optional.ofNullable(config.getUsername()).orElse("user"), Optional.empty()),
                 TimeZoneKey.UTC_KEY,
                 Locale.ENGLISH,
                 System.currentTimeMillis(), ImmutableMap.of(),

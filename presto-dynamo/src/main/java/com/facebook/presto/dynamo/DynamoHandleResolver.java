@@ -15,20 +15,9 @@ package com.facebook.presto.dynamo;
 
 import com.facebook.presto.spi.*;
 
-import javax.inject.Inject;
-
-import static com.google.common.base.MoreObjects.toStringHelper;
-import static com.google.common.base.Preconditions.checkNotNull;
-
 
 public class DynamoHandleResolver
         implements ConnectorHandleResolver {
-    private final String connectorId;
-
-    @Inject
-    public DynamoHandleResolver(DynamoConnectorId connectorId) {
-        this.connectorId = checkNotNull(connectorId, "connectorId is null").toString();
-    }
 
     @Override
     public Class<? extends ConnectorTableLayoutHandle> getTableLayoutHandleClass() {
@@ -55,10 +44,4 @@ public class DynamoHandleResolver
         return DynamoOutputTableHandle.class;
     }
 
-    @Override
-    public String toString() {
-        return toStringHelper(this)
-                .add("connectorId", connectorId)
-                .toString();
-    }
 }

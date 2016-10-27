@@ -44,6 +44,12 @@
         </artifact>
     </artifactSet>
 
+    <artifactSet to="plugin/dynamo">
+        <artifact id="${project.groupId}:presto-dynamo:zip:${project.version}">
+            <unpack />
+        </artifact>
+    </artifactSet>
+
     <artifactSet to="plugin/example-http">
         <artifact id="${project.groupId}:presto-example-http:zip:${project.version}">
             <unpack />

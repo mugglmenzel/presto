@@ -13,19 +13,12 @@
  */
 package com.facebook.presto.dynamo;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.util.List;
-import java.util.Map;
-
-import com.facebook.presto.spi.ConnectorFactory;
 import com.facebook.presto.spi.Plugin;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 public class DynamoPlugin
-        implements Plugin
-{
+        implements Plugin {
     @Override
     public Iterable<com.facebook.presto.spi.connector.ConnectorFactory> getConnectorFactories() {
         return ImmutableList.of(new DynamoConnectorFactory("dynamo", ImmutableMap.of()));

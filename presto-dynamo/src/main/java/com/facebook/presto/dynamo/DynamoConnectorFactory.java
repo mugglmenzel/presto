@@ -51,7 +51,7 @@ public class DynamoConnectorFactory
 
     @Override
     public ConnectorHandleResolver getHandleResolver() {
-        return null;
+        return new DynamoHandleResolver();
     }
 
     @Override

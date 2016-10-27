@@ -33,7 +33,7 @@ import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator
 
 public class DynamoSplitManager
         implements ConnectorSplitManager {
-    private static final Logger log = Logger.get(DynamoSplitManager.class);
+    private static final Logger Log = Logger.get(DynamoSplitManager.class);
 
     private final String connectorId;
     private final DynamoSession dynamoSession;
@@ -63,6 +63,8 @@ public class DynamoSplitManager
     public ConnectorSplitSource getSplits(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorTableLayoutHandle layout) {
         DynamoTableLayoutHandle dynamoTableLayoutHandle = checkType(layout, DynamoTableLayoutHandle.class, "layout");
         DynamoSession dynamoSession = checkType(session, DynamoSession.class, "session");
+
+        Log.info("Getting splits ...");
 
         return new FixedSplitSource(getSplitsList(dynamoSession, dynamoTableLayoutHandle));
     }

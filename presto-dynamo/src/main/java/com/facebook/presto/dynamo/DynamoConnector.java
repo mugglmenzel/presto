@@ -59,18 +59,8 @@ public class DynamoConnector
     }
 
     @Override
-    public ConnectorPageSourceProvider getPageSourceProvider() {
-        return null;
-    }
-
-    @Override
     public ConnectorRecordSetProvider getRecordSetProvider() {
         return recordSetProvider;
-    }
-
-    @Override
-    public ConnectorPageSinkProvider getPageSinkProvider() {
-        return null;
     }
 
     @Override

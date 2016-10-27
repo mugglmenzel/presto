@@ -13,25 +13,22 @@
  */
 package com.facebook.presto.dynamo.aws;
 
-import io.airlift.log.Logger;
-
-import java.util.HashMap;
-import java.util.Map;
-
 import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 import com.amazonaws.regions.RegionUtils;
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
+import io.airlift.log.Logger;
 
-public class DefaultDynamoAwsClientProvider implements DynamoAwsClientProvider
-{
+import java.util.HashMap;
+import java.util.Map;
+
+public class DefaultDynamoAwsClientProvider implements DynamoAwsClientProvider {
     private static final Logger log = Logger.get(DefaultDynamoAwsClientProvider.class);
 
     private Map<String, AmazonDynamoDB> clientCache = new HashMap<String, AmazonDynamoDB>();
 
-    public synchronized AmazonDynamoDB getClient(String region)
-    {
+    public synchronized AmazonDynamoDB getClient(String region) {
         String clientKey = region.toLowerCase();
         AmazonDynamoDB client = clientCache.get(clientKey);
         if (client != null) {
@@ -43,10 +40,9 @@ public class DefaultDynamoAwsClientProvider implements DynamoAwsClientProvider
         return client;
     }
 
-    private AmazonDynamoDB createClient(String region)
-    {
+    private AmazonDynamoDB createClient(String region) {
         AmazonDynamoDBClient client = new AmazonDynamoDBClient(
-                new DefaultAWSCredentialsProviderChain().getCredentials());
+                new DefaultAWSCredentialsProviderChain());
         Regions regionEnum = AwsUtils.getRegionByEnumName(region);
         client.setRegion(RegionUtils.getRegion(regionEnum.getName()));
         log.info(String.format("Created DynamoDB client with region %s", regionEnum));

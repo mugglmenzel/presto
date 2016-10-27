@@ -14,7 +14,9 @@
 package com.facebook.presto.dynamo;
 
 import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
+import com.amazonaws.regions.Region;
 import com.amazonaws.regions.RegionUtils;
+import com.amazonaws.regions.Regions;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
 import com.amazonaws.services.dynamodbv2.model.ListTablesResult;
@@ -33,6 +35,7 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.UncheckedExecutionException;
+import io.airlift.log.Logger;
 
 import java.util.HashMap;
 import java.util.List;
@@ -40,8 +43,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
+
 public class DynamoSession implements ConnectorSession {
-    static final String PRESTO_COMMENT_METADATA = "Presto Metadata:";
+
+    private final Logger Log = Logger.get(DynamoSession.class);
 
     private final String connectorId;
     private final String queryId;
@@ -69,19 +74,18 @@ public class DynamoSession implements ConnectorSession {
         clientBySchema = CacheBuilder.newBuilder().build(
                 new CacheLoader<String, AmazonDynamoDB>() {
                     @Override
-                    public AmazonDynamoDB load(String key) throws Exception {
-                        AmazonDynamoDBClient client = new AmazonDynamoDBClient(
+                    public AmazonDynamoDB load(String region) throws Exception {
+                        return new AmazonDynamoDBClient(
                                 new DefaultAWSCredentialsProviderChain()
-                                        .getCredentials());
-                        client.setRegion(RegionUtils.getRegion(AwsUtils.getRegionByEnumName(key).getName()));
-                        // client.setRegion(Region.getRegion(Regions.US_WEST_2));
-                        return client;
+                                        .getCredentials()).withRegion(Regions.fromName(region));
                     }
                 });
+        Log.info("New DynamoSession created.");
     }
 
     public AmazonDynamoDB getClient(String schemaName) {
         try {
+            Log.info("Getting client for " + schemaName);
             return clientBySchema.get(schemaName);
         } catch (ExecutionException | UncheckedExecutionException e) {
             throw Throwables.propagate(e.getCause());
@@ -94,6 +98,7 @@ public class DynamoSession implements ConnectorSession {
 
     public List<String> getAllTables(String schema)
             throws SchemaNotFoundException {
+        Log.info("Retrieving all tables for " + schema);
         return executeWithClient(schema, new ClientCallable<List<String>>() {
             @Override
             public List<String> executeWithClient(AmazonDynamoDB client) {
@@ -190,7 +195,7 @@ public class DynamoSession implements ConnectorSession {
         return metadata;
     }
 
-    private interface ClientCallable<T> {
+    public interface ClientCallable<T> {
         T executeWithClient(AmazonDynamoDB client);
     }
 }
