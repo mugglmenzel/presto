@@ -23,6 +23,9 @@ import java.util.Objects;
 
 import javax.annotation.Nullable;
 
+import com.facebook.presto.dynamo.type.DynamoType;
+import com.facebook.presto.dynamo.type.DynamoTypeWithTypeArguments;
+import com.facebook.presto.dynamo.type.FullDynamoType;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.type.Type;

@@ -11,15 +11,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.dynamo.aws;
+package com.facebook.presto.dynamo.aws.metadata;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import com.facebook.presto.dynamo.DynamoClientConfig;
+import com.facebook.presto.dynamo.aws.AwsUtils;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.airlift.log.Logger;
 
 //JSON Example
 //{
@@ -63,6 +64,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 public class DynamoAwsMetadata
 {
+    private Logger Log = Logger.get(DynamoAwsMetadata.class);
     private List<DynamoTableAwsMetadata> tables;
 
     public DynamoAwsMetadata()
@@ -108,6 +110,7 @@ public class DynamoAwsMetadata
 
     public DynamoTableAwsMetadata getTable(String region, String tableName)
     {
+        Log.info("Returning metadata for table " + tableName);
         for (DynamoTableAwsMetadata entry : tables) {
             if (entry.getRegion().equalsIgnoreCase(region)
                     && entry.getTableName().equalsIgnoreCase(tableName)) {

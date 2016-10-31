@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.dynamo;
 
+import com.facebook.presto.dynamo.type.DynamoType;
 import io.airlift.log.Logger;
 
 import java.io.File;
@@ -21,9 +22,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.amazonaws.regions.Regions;
-import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
-import com.facebook.presto.dynamo.aws.DynamoColumnAwsMetadata;
-import com.facebook.presto.dynamo.aws.DynamoTableAwsMetadata;
+import com.facebook.presto.dynamo.aws.metadata.DynamoAwsMetadata;
+import com.facebook.presto.dynamo.aws.metadata.DynamoColumnAwsMetadata;
+import com.facebook.presto.dynamo.aws.metadata.DynamoTableAwsMetadata;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 

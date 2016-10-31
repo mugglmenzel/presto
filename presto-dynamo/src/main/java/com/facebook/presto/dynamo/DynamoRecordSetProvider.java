@@ -14,12 +14,13 @@
 package com.facebook.presto.dynamo;
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
-import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
+import com.facebook.presto.dynamo.aws.metadata.DynamoAwsMetadataProvider;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.ConnectorSplit;
 import com.facebook.presto.spi.RecordSet;
-import com.facebook.presto.spi.connector.*;
+import com.facebook.presto.spi.connector.ConnectorRecordSetProvider;
+import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.google.common.collect.ImmutableList;
 import io.airlift.log.Logger;
 
@@ -33,7 +34,7 @@ import static com.google.common.collect.Iterables.transform;
 
 public class DynamoRecordSetProvider
         implements ConnectorRecordSetProvider {
-    private static final Logger log = Logger.get(ConnectorRecordSetProvider.class);
+    private static final Logger Log = Logger.get(ConnectorRecordSetProvider.class);
 
     private final String connectorId;
     private DynamoClientConfig config;
@@ -55,20 +56,22 @@ public class DynamoRecordSetProvider
 
     @Override
     public RecordSet getRecordSet(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorSplit split, List<? extends ColumnHandle> columns) {
+        session = DynamoSession.fromConnectorSession(session);
+        Log.info("Session for records is: " + session);
         DynamoSession dynamoSession = checkType(session, DynamoSession.class, "session");
         DynamoSplit dynamoSplit = checkType(split, DynamoSplit.class, "split");
 
         checkNotNull(columns, "columns is null");
         List<DynamoColumnHandle> dynamoColumns = ImmutableList.copyOf(transform(columns, DynamoColumnHandle.dynamoColumnHandle()));
 
-        log.info("Creating record set: %s", dynamoSplit.getTable());
+        Log.info("Creating record set: %s", dynamoSplit.getTable());
 
         String schema = dynamoSplit.getSchema();
         String tableName = dynamoSplit.getTable();
         try {
             tableName = schemaProvider.getMetadata().getAwsTableName(schema, tableName);
         } catch (IllegalArgumentException ex) {
-            log.debug(ex, "Invalid schema for AWS region: " + schema);
+            Log.warn(ex, "Invalid schema for AWS region: " + schema);
         }
 
         AmazonDynamoDB dynamoClient = dynamoSession.getClient(schema);

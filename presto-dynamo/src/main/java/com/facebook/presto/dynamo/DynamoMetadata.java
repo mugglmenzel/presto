@@ -13,8 +13,8 @@
  */
 package com.facebook.presto.dynamo;
 
-import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
-import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
+import com.facebook.presto.dynamo.aws.metadata.DynamoAwsMetadata;
+import com.facebook.presto.dynamo.aws.metadata.DynamoAwsMetadataProvider;
 import com.facebook.presto.spi.*;
 import com.facebook.presto.spi.connector.ConnectorMetadata;
 import com.google.common.collect.ImmutableList;
@@ -153,9 +153,11 @@ public class DynamoMetadata implements ConnectorMetadata {
                 dynamoTableHandle.getTableName());
         ImmutableMap.Builder<String, ColumnHandle> columnHandles = ImmutableMap
                 .builder();
+        log.info("Metadata columns: " + table.getColumns());
         for (DynamoColumnHandle columnHandle : table.getColumns())
             columnHandles.put(columnHandle.getName(),
                     columnHandle);
+        log.info("Retrieved columnhandles: " + columnHandles.build());
         return columnHandles.build();
     }
 

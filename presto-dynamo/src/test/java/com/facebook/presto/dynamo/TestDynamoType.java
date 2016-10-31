@@ -17,6 +17,7 @@ import static org.testng.Assert.assertTrue;
 
 import java.io.IOException;
 
+import com.facebook.presto.dynamo.type.DynamoType;
 import org.testng.annotations.Test;
 
 import com.fasterxml.jackson.core.JsonParser;

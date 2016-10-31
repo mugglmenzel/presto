@@ -11,13 +11,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.dynamo;
+package com.facebook.presto.dynamo.aws.metadata;
 
-import java.util.List;
+import com.facebook.presto.dynamo.type.DynamoType;
 
-public interface FullDynamoType
-{
-    DynamoType getDynamoType();
+/**
+ * Created by menzelmi on 28/10/16.
+ */
+public class AwsDynamoToPrestoTypeMapper {
 
-    List<DynamoType> getTypeArguments();
+    public static DynamoType map(String awsDynamoType) {
+        switch (awsDynamoType) {
+            case "S":
+                return DynamoType.STRING;
+            case "N":
+                return DynamoType.DOUBLE;
+            case "B":
+                return DynamoType.BINARY;
+            default:
+                return DynamoType.STRING;
+        }
+    }
 }

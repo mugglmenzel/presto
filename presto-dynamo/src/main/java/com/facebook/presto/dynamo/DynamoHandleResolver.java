@@ -14,6 +14,7 @@
 package com.facebook.presto.dynamo;
 
 import com.facebook.presto.spi.*;
+import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 
 
 public class DynamoHandleResolver
@@ -44,4 +45,8 @@ public class DynamoHandleResolver
         return DynamoOutputTableHandle.class;
     }
 
+    @Override
+    public Class<? extends ConnectorTransactionHandle> getTransactionHandleClass() {
+        return DynamoTransactionHandle.class;
+    }
 }

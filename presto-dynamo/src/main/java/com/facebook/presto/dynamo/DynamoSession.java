@@ -14,15 +14,13 @@
 package com.facebook.presto.dynamo;
 
 import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
-import com.amazonaws.regions.Region;
-import com.amazonaws.regions.RegionUtils;
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
 import com.amazonaws.services.dynamodbv2.model.ListTablesResult;
-import com.facebook.presto.dynamo.aws.AwsUtils;
-import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
-import com.facebook.presto.dynamo.aws.DynamoColumnAwsMetadata;
+import com.facebook.presto.dynamo.aws.metadata.DynamoAwsMetadata;
+import com.facebook.presto.dynamo.aws.metadata.DynamoColumnAwsMetadata;
+import com.facebook.presto.dynamo.type.DynamoType;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.SchemaNotFoundException;
 import com.facebook.presto.spi.SchemaTableName;
@@ -37,10 +35,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import io.airlift.log.Logger;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
 
 
@@ -81,6 +76,10 @@ public class DynamoSession implements ConnectorSession {
                     }
                 });
         Log.info("New DynamoSession created.");
+    }
+
+    public static DynamoSession fromConnectorSession(ConnectorSession session) {
+        return new DynamoSession("", session.getQueryId(), session.getIdentity(), session.getTimeZoneKey(), session.getLocale(), session.getStartTime(), Collections.emptyMap(), new DynamoAwsMetadata());
     }
 
     public AmazonDynamoDB getClient(String schemaName) {

@@ -11,12 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.dynamo.aws;
+package com.facebook.presto.dynamo.aws.metadata;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import com.facebook.presto.dynamo.DynamoType;
+import com.facebook.presto.dynamo.type.DynamoType;
 
 public class DynamoColumnAwsMetadata
 {
@@ -66,5 +66,14 @@ public class DynamoColumnAwsMetadata
     public void setTypeArguments(List<DynamoType> typeArguments)
     {
         this.typeArguments = typeArguments;
+    }
+
+    @Override
+    public String toString() {
+        return "DynamoColumnAwsMetadata{" +
+                "columnName='" + columnName + '\'' +
+                ", columnType=" + columnType +
+                ", typeArguments=" + typeArguments +
+                '}';
     }
 }

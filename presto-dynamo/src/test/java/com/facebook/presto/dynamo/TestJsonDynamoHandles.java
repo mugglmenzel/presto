@@ -16,6 +16,8 @@ package com.facebook.presto.dynamo;
 import static io.airlift.testing.Assertions.assertEqualsIgnoreOrder;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
+
+import com.facebook.presto.dynamo.type.DynamoType;
 import io.airlift.json.ObjectMapperProvider;
 
 import java.util.Map;

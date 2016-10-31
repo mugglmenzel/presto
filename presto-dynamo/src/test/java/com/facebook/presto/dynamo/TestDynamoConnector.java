@@ -15,9 +15,10 @@ package com.facebook.presto.dynamo;
 
 import com.amazonaws.regions.Regions;
 import com.facebook.presto.dynamo.aws.AwsUtils;
-import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
-import com.facebook.presto.dynamo.aws.DynamoColumnAwsMetadata;
-import com.facebook.presto.dynamo.aws.DynamoTableAwsMetadata;
+import com.facebook.presto.dynamo.aws.metadata.DynamoAwsMetadata;
+import com.facebook.presto.dynamo.aws.metadata.DynamoColumnAwsMetadata;
+import com.facebook.presto.dynamo.aws.metadata.DynamoTableAwsMetadata;
+import com.facebook.presto.dynamo.type.DynamoType;
 import com.facebook.presto.spi.*;
 import com.facebook.presto.spi.connector.Connector;
 import com.facebook.presto.spi.connector.ConnectorMetadata;

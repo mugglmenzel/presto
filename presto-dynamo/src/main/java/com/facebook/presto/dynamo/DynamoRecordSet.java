@@ -13,22 +13,25 @@
  */
 package com.facebook.presto.dynamo;
 
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
+import com.facebook.presto.dynamo.type.FullDynamoType;
+import com.facebook.presto.spi.RecordCursor;
+import com.facebook.presto.spi.RecordSet;
+import com.facebook.presto.spi.type.Type;
+import io.airlift.log.Logger;
+
+import java.util.ArrayList;
+import java.util.List;
+
 import static com.facebook.presto.dynamo.DynamoColumnHandle.dynamoFullTypeGetter;
 import static com.facebook.presto.dynamo.DynamoColumnHandle.nativeTypeGetter;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.collect.Lists.transform;
 
-import java.util.ArrayList;
-import java.util.List;
-
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
-import com.facebook.presto.spi.RecordCursor;
-import com.facebook.presto.spi.RecordSet;
-import com.facebook.presto.spi.type.Type;
-
 public class DynamoRecordSet
-        implements RecordSet
-{
+        implements RecordSet {
+    private static final Logger Log = Logger.get(DynamoRecordSet.class);
+
     private final AmazonDynamoDB dynamoClient;
     private final String tableName;
     private final Integer partitionId;
@@ -38,8 +41,7 @@ public class DynamoRecordSet
     private final List<Type> columnTypes;
     private final int fetchSize;
 
-    public DynamoRecordSet(AmazonDynamoDB dynamoClient, String tableName, Integer partitionId, Integer partitionCount, List<DynamoColumnHandle> dynamoColumns, int fetchSize)
-    {
+    public DynamoRecordSet(AmazonDynamoDB dynamoClient, String tableName, Integer partitionId, Integer partitionCount, List<DynamoColumnHandle> dynamoColumns, int fetchSize) {
         this.dynamoClient = checkNotNull(dynamoClient, "dynamoClient is null");
         this.tableName = checkNotNull(tableName, "tableName is null");
         checkNotNull(partitionId, "partitionId is null");
@@ -57,14 +59,13 @@ public class DynamoRecordSet
     }
 
     @Override
-    public List<Type> getColumnTypes()
-    {
+    public List<Type> getColumnTypes() {
         return columnTypes;
     }
 
     @Override
-    public RecordCursor cursor()
-    {
+    public RecordCursor cursor() {
+        Log.info("Creating record set cursor...");
         return new DynamoRecordCursor(dynamoClient, tableName, partitionId, partitionCount, dynamoTypes, columnNames, fetchSize);
     }
 }

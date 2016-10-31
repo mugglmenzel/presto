@@ -13,7 +13,7 @@
  */
 package com.facebook.presto.dynamo;
 
-import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
+import com.facebook.presto.dynamo.aws.metadata.DynamoAwsMetadataProvider;
 import com.facebook.presto.spi.*;
 import com.facebook.presto.spi.connector.ConnectorSplitManager;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
@@ -61,6 +61,8 @@ public class DynamoSplitManager
 
     @Override
     public ConnectorSplitSource getSplits(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorTableLayoutHandle layout) {
+        session = DynamoSession.fromConnectorSession(session);
+        Log.info("Session for splits is: " +session);
         DynamoTableLayoutHandle dynamoTableLayoutHandle = checkType(layout, DynamoTableLayoutHandle.class, "layout");
         DynamoSession dynamoSession = checkType(session, DynamoSession.class, "session");
 
@@ -86,11 +88,11 @@ public class DynamoSplitManager
     private Integer numberOfSplits(DynamoSession dynamoSession, DynamoTableHandle dynamoTableHandle) {
         Long itemCount = dynamoSession
                 .getClient(dynamoTableHandle.getSchemaName())
-                .describeTable(dynamoTableHandle.getTableName())
+                .describeTable(dynamoSession.getAllTables(dynamoTableHandle.getSchemaName()).stream().filter(e -> e.equalsIgnoreCase(dynamoTableHandle.getTableName())).findFirst().orElse(""))
                 .getTable()
                 .getItemCount();
 
-        System.out.println("Returning splits: " + itemCount + "/" + clientConfig.getSplitSize());
+        Log.info("Returning splits: " + itemCount + "/" + clientConfig.getSplitSize());
         return Math.max(itemCount.intValue() / clientConfig.getSplitSize(), clientConfig.getMinSplitCount());
     }
 

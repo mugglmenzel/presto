@@ -32,8 +32,8 @@ import java.util.concurrent.ExecutorService;
 import javax.inject.Singleton;
 
 import com.facebook.presto.dynamo.aws.DynamoAwsClientProvider;
-import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
-import com.facebook.presto.dynamo.aws.DynamoAwsMetadataProvider;
+import com.facebook.presto.dynamo.aws.metadata.DynamoAwsMetadata;
+import com.facebook.presto.dynamo.aws.metadata.DynamoAwsMetadataProvider;
 import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.Provides;

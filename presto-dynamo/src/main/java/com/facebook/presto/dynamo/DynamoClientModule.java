@@ -14,6 +14,9 @@
 package com.facebook.presto.dynamo;
 
 import com.facebook.presto.dynamo.aws.*;
+import com.facebook.presto.dynamo.aws.metadata.DynamoAwsMetadata;
+import com.facebook.presto.dynamo.aws.metadata.DynamoAwsMetadataProvider;
+import com.facebook.presto.dynamo.aws.metadata.LiveDynamoAwsMetadataProvider;
 import com.facebook.presto.spi.security.Identity;
 import com.facebook.presto.spi.type.TimeZoneKey;
 import com.google.common.collect.ImmutableMap;

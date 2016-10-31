@@ -14,9 +14,10 @@
 package com.facebook.presto.dynamo;
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
-import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
-import com.facebook.presto.dynamo.aws.DynamoColumnAwsMetadata;
-import com.facebook.presto.dynamo.aws.DynamoTableAwsMetadata;
+import com.facebook.presto.dynamo.aws.metadata.DynamoAwsMetadata;
+import com.facebook.presto.dynamo.aws.metadata.DynamoColumnAwsMetadata;
+import com.facebook.presto.dynamo.aws.metadata.DynamoTableAwsMetadata;
+import com.facebook.presto.dynamo.type.DynamoType;
 import com.facebook.presto.spi.SchemaNotFoundException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableNotFoundException;

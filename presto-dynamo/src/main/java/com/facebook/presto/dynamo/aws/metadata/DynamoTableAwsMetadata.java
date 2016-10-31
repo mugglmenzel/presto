@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.dynamo.aws;
+package com.facebook.presto.dynamo.aws.metadata;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -65,5 +65,14 @@ public class DynamoTableAwsMetadata
     {
         this.columns = columns == null ? new ArrayList<DynamoColumnAwsMetadata>()
                 : columns;
+    }
+
+    @Override
+    public String toString() {
+        return "DynamoTableAwsMetadata{" +
+                "region='" + region + '\'' +
+                ", tableName='" + tableName + '\'' +
+                ", columns=" + columns +
+                '}';
     }
 }

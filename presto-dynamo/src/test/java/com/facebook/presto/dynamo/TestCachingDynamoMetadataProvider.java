@@ -24,8 +24,8 @@ import java.util.concurrent.TimeUnit;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import com.facebook.presto.dynamo.aws.CachingDynamoAwsMetadataProvider;
-import com.facebook.presto.dynamo.aws.DynamoAwsMetadata;
+import com.facebook.presto.dynamo.aws.metadata.CachingDynamoAwsMetadataProvider;
+import com.facebook.presto.dynamo.aws.metadata.DynamoAwsMetadata;
 import com.google.common.util.concurrent.ListeningExecutorService;
 
 @Test(singleThreaded = true)

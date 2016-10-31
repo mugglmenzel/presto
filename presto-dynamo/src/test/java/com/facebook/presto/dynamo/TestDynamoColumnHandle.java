@@ -15,6 +15,8 @@ package com.facebook.presto.dynamo;
 
 import static io.airlift.json.JsonCodec.jsonCodec;
 import static org.testng.Assert.assertEquals;
+
+import com.facebook.presto.dynamo.type.DynamoType;
 import io.airlift.json.JsonCodec;
 
 import org.testng.annotations.Test;
