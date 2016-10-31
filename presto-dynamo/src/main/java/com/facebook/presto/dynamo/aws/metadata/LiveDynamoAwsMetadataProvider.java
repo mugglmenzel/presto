@@ -23,6 +23,7 @@ import io.airlift.log.Logger;
 
 import javax.inject.Inject;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -50,9 +51,9 @@ public class LiveDynamoAwsMetadataProvider implements DynamoAwsMetadataProvider 
     private List<DynamoTableAwsMetadata> getAwsTablesMetadata() {
         if (this.tablesMetadata == null) {
             Log.info("Retrieving all tables in all regions...");
-            List<DynamoTableAwsMetadata> tempTablesMeta = new ArrayList<>();
+            List<DynamoTableAwsMetadata> tempTablesMeta = Collections.synchronizedList(new ArrayList<>());
 
-            for (Region r : RegionUtils.getRegions().stream().filter(e -> !e.getName().toLowerCase().contains("gov")).collect(Collectors.toList()))
+            RegionUtils.getRegions().parallelStream().filter(e -> !e.getName().toLowerCase().contains("gov")).forEach(r -> {
                 tempTablesMeta.addAll(session.executeWithClient(r.getName(), new DynamoSession.ClientCallable<List<DynamoTableAwsMetadata>>() {
                     @Override
                     public List<DynamoTableAwsMetadata> executeWithClient(AmazonDynamoDB client) {
@@ -81,6 +82,8 @@ public class LiveDynamoAwsMetadataProvider implements DynamoAwsMetadataProvider 
                         return awsTabs;
                     }
                 }));
+            });
+
             Log.info("Generated new AWS Metadata: " + tempTablesMeta);
             this.tablesMetadata = tempTablesMeta;
         }

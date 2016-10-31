@@ -31,7 +31,7 @@ import java.util.Map;
 import static io.airlift.slice.Slices.utf8Slice;
 
 public class DynamoRecordCursor implements RecordCursor {
-    private static final Logger log = Logger.get(DynamoRecordCursor.class);
+    private static final Logger Log = Logger.get(DynamoRecordCursor.class);
 
     private final AmazonDynamoDB dynamo;
     private final String tableName;
@@ -66,7 +66,7 @@ public class DynamoRecordCursor implements RecordCursor {
     @Override
     public boolean advanceNextPosition() {
         if (currentRowIndex == -1) {
-            log.info(String.format("Doing first scan for dynamo table %s",
+            Log.info(String.format("Doing first scan for dynamo table %s",
                     tableName));
             ScanRequest scanRequest = new ScanRequest()
                     .withSegment(partitionId).withTotalSegments(partitionCount)
@@ -77,10 +77,10 @@ public class DynamoRecordCursor implements RecordCursor {
             rs.clear();
             rs.addAll(items);
             lastKeyEvaluated = scanResult.getLastEvaluatedKey();
-            log.info(String.format(
+            Log.info(String.format(
                     "Finished first scan for dynamo table %s, got %s rows",
                     tableName, items.size()));
-
+            Log.info("Scanned items: " + items);
             if (items.size() == 0) {
                 return false;
             } else {
@@ -95,7 +95,7 @@ public class DynamoRecordCursor implements RecordCursor {
             currentRow = rs.get((int) (currentRowIndex - currentRowIndexBase));
             return true;
         } else if (lastKeyEvaluated != null) {
-            log.info(String.format("Doing next scan for dynamo table %s",
+            Log.info(String.format("Doing next scan for dynamo table %s",
                     tableName));
             ScanRequest scanRequest = new ScanRequest()
                     .withSegment(partitionId).withTotalSegments(partitionCount)
@@ -106,7 +106,7 @@ public class DynamoRecordCursor implements RecordCursor {
             rs.clear();
             rs.addAll(items);
             lastKeyEvaluated = scanResult.getLastEvaluatedKey();
-            log.info(String.format("Doing next scan for dynamo table %s",
+            Log.info(String.format("Doing next scan for dynamo table %s",
                     tableName));
 
             if (items.size() == 0) {
@@ -119,7 +119,7 @@ public class DynamoRecordCursor implements RecordCursor {
                 return true;
             }
         } else {
-            log.info(String.format("Hit end for dynamo table %s", tableName));
+            Log.info(String.format("Hit end for dynamo table %s", tableName));
             return false;
         }
     }
@@ -191,7 +191,8 @@ public class DynamoRecordCursor implements RecordCursor {
     @Override
     public boolean isNull(int i) {
         String columnName = columnNames.get(i);
-        AttributeValue attValue = currentRow.get(columnName);
+        AttributeValue attValue = currentRow.keySet().stream().filter(c -> c.equalsIgnoreCase(columnName)).findFirst().map(currentRow::get).orElse(null);
+        Log.info("Asked for isNULL: " + attValue);
         return attValue == null
                 || (attValue.isNULL() != null && attValue.isNULL());
     }
