@@ -106,6 +106,14 @@ dist/bin/launcher start
 
 You can find more details in the [documentation at prestodb.io](https://prestodb.io/docs/current/installation/deployment.html).
 
+## Connect Presto Client
+
+The presto client can connect to the server using the "dynamo" catalog item and a AWS region as schema. For example, when running a Presto server locally:
+
+```bash
+presto --server http://localhost:8080 --catalog dynamo --schema eu-west-1
+```
+
 ## Configuration
 
 Parameters of the plugin can be configured in the ```dynamo.properties``` file.
