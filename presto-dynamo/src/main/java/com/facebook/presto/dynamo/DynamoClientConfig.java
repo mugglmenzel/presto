@@ -37,8 +37,7 @@ public class DynamoClientConfig {
     private int fetchSizeForPartitionKeySelect = 20_000;
     private int fetchSize = 5_000;
     private int nativeProtocolPort = 9042;
-    private int partitionSizeForBatchSelect = 100;
-    private int splitSize = 1_024;
+    private int splitSize = 20_000;
     private int minSplitCount = 2;
     private Map<String, String> transportFactoryOptions = new HashMap<>();
     private boolean allowDropTable;
@@ -129,18 +128,6 @@ public class DynamoClientConfig {
     public DynamoClientConfig setFetchSizeForPartitionKeySelect(
             int fetchSizeForPartitionKeySelect) {
         this.fetchSizeForPartitionKeySelect = fetchSizeForPartitionKeySelect;
-        return this;
-    }
-
-    @Min(1)
-    public int getPartitionSizeForBatchSelect() {
-        return partitionSizeForBatchSelect;
-    }
-
-    @Config("dynamo.partition-size-for-batch-select")
-    public DynamoClientConfig setPartitionSizeForBatchSelect(
-            int partitionSizeForBatchSelect) {
-        this.partitionSizeForBatchSelect = partitionSizeForBatchSelect;
         return this;
     }
 

@@ -39,8 +39,6 @@ public class DynamoSplitManager
     private final DynamoSession dynamoSession;
     private final DynamoAwsMetadataProvider schemaProvider;
     private final DynamoClientConfig clientConfig;
-    private final int partitionSizeForBatchSelect;
-    private final DynamoTokenSplitManager tokenSplitMgr;
     private final ListeningExecutorService executor;
 
     @Inject
@@ -48,14 +46,11 @@ public class DynamoSplitManager
                               DynamoClientConfig dynamoClientConfig,
                               DynamoSession dynamoSession,
                               DynamoAwsMetadataProvider schemaProvider,
-                              DynamoTokenSplitManager tokenSplitMgr,
                               @ForDynamo ExecutorService executor) {
         this.connectorId = checkNotNull(connectorId, "connectorId is null").toString();
         this.schemaProvider = checkNotNull(schemaProvider, "schemaProvider is null");
         this.dynamoSession = checkNotNull(dynamoSession, "dynamoSession is null");
         this.clientConfig = dynamoClientConfig;
-        this.partitionSizeForBatchSelect = dynamoClientConfig.getPartitionSizeForBatchSelect();
-        this.tokenSplitMgr = tokenSplitMgr;
         this.executor = listeningDecorator(executor);
     }
 

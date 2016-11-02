@@ -66,7 +66,6 @@ public class DynamoClientModule
         binder.bind(DynamoConnector.class).in(Scopes.SINGLETON);
         binder.bind(DynamoMetadata.class).in(Scopes.SINGLETON);
         binder.bind(DynamoSplitManager.class).in(Scopes.SINGLETON);
-        binder.bind(DynamoTokenSplitManager.class).in(Scopes.SINGLETON);
         binder.bind(DynamoRecordSetProvider.class).in(Scopes.SINGLETON);
         binder.bind(DynamoHandleResolver.class).in(Scopes.SINGLETON);
         binder.bind(DynamoConnectorRecordSinkProvider.class).in(Scopes.SINGLETON);
