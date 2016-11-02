@@ -9,6 +9,7 @@ Some highlights of the plugin:
 
 ## Prerequisites
 
+- Java 8 SDK
 - Git client
 - Maven build processor
 
@@ -22,7 +23,7 @@ The setup consists of multiple steps: (1) building, (2) preparation, (3) executi
 The plugin is embedded into the Presto source code and build process. To build the plugin together with Presto, checkout the [source code](../) with ```git```:
 
 ```bash
-git clone https://github.com/mugglmenzel/presto
+git clone https://github.com/mugglmenzel/presto.git
 ``` 
 
 In the main folder of the source code, use Maven to build the code. We can skip tests to speed up the build tasks:
