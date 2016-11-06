@@ -180,7 +180,7 @@ public enum DynamoType implements FullDynamoType {
     }
 
     @VisibleForTesting
-    static String buildArrayValue(Collection<?> collection, DynamoType elemType) {
+    public static String buildArrayValue(Collection<?> collection, DynamoType elemType) {
         StringBuilder sb = new StringBuilder();
         sb.append("[");
         for (Object value : collection) {
