@@ -182,11 +182,9 @@ public final class SqlStageExecution
         getAllTasks().forEach(RemoteTask::abort);
     }
 
-    public synchronized long getMemoryReservation()
+    public long getMemoryReservation()
     {
-        return getAllTasks().stream()
-                .mapToLong(task -> task.getTaskStatus().getMemoryReservation().toBytes())
-                .sum();
+        return stateMachine.getMemoryReservation();
     }
 
     public synchronized Duration getTotalCpuTime()
@@ -275,15 +273,15 @@ public final class SqlStageExecution
                 .collect(toImmutableList());
     }
 
-    public synchronized CompletableFuture<?> getTaskStateChange()
+    public synchronized CompletableFuture<?> whenTaskSplitQueueHasSpace()
     {
         List<RemoteTask> allTasks = getAllTasks();
         if (allTasks.isEmpty()) {
             return completedFuture(null);
         }
 
-        List<CompletableFuture<TaskStatus>> stateChangeFutures = allTasks.stream()
-                .map(task -> task.getStateChange(task.getTaskStatus()))
+        List<CompletableFuture<?>> stateChangeFutures = allTasks.stream()
+                .map(RemoteTask::whenSplitQueueHasSpace)
                 .collect(toImmutableList());
 
         return firstCompletedFuture(stateChangeFutures, true);

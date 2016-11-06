@@ -30,7 +30,6 @@ import com.facebook.presto.sql.planner.Symbol;
 import com.facebook.presto.sql.planner.SymbolAllocator;
 import com.facebook.presto.sql.planner.plan.AggregationNode;
 import com.facebook.presto.sql.planner.plan.AssignUniqueId;
-import com.facebook.presto.sql.planner.plan.ChildReplacer;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
 import com.facebook.presto.sql.planner.plan.FilterNode;
 import com.facebook.presto.sql.planner.plan.GroupIdNode;
@@ -47,6 +46,7 @@ import com.facebook.presto.sql.planner.plan.UnionNode;
 import com.facebook.presto.sql.planner.plan.UnnestNode;
 import com.facebook.presto.sql.tree.BooleanLiteral;
 import com.facebook.presto.sql.tree.ComparisonExpression;
+import com.facebook.presto.sql.tree.ComparisonExpressionType;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.ExpressionTreeRewriter;
 import com.facebook.presto.sql.tree.LongLiteral;
@@ -221,26 +221,25 @@ public class PredicatePushDown
         {
             checkState(!DependencyExtractor.extractUnique(context.get()).contains(node.getGroupIdSymbol()), "groupId symbol cannot be referenced in predicate");
 
-            List<Symbol> commonGroupingSymbols = node.getCommonGroupingColumns();
+            Map<Symbol, SymbolReference> commonGroupingSymbolMapping = node.getGroupingSetMappings().entrySet().stream()
+                    .filter(entry -> node.getCommonGroupingColumns().contains(entry.getKey()))
+                    .collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().toSymbolReference()));
+
             Predicate<Expression> pushdownEligiblePredicate = conjunct -> DependencyExtractor.extractUnique(conjunct).stream()
-                    .allMatch(commonGroupingSymbols::contains);
+                    .allMatch(commonGroupingSymbolMapping.keySet()::contains);
 
             Map<Boolean, List<Expression>> conjuncts = extractConjuncts(context.get()).stream().collect(Collectors.partitioningBy(pushdownEligiblePredicate));
 
-            // Push down conjuncts from the inherited predicate that apply to the common grouping columns, or don't apply to any grouping columns
-            PlanNode rewrittenSource = context.rewrite(node.getSource(), combineConjuncts(conjuncts.get(true)));
-
-            PlanNode output = node;
-            if (rewrittenSource != node.getSource()) {
-                output = ChildReplacer.replaceChildren(node, ImmutableList.of(rewrittenSource));
-            }
+            // Push down conjuncts from the inherited predicate that apply to common grouping symbols
+            PlanNode rewrittenNode = context.defaultRewrite(node,
+                    ExpressionTreeRewriter.rewriteWith(new ExpressionSymbolInliner(commonGroupingSymbolMapping), combineConjuncts(conjuncts.get(true))));
 
             // All other conjuncts, if any, will be in the filter node.
             if (!conjuncts.get(false).isEmpty()) {
-                output = new FilterNode(idAllocator.getNextId(), output, combineConjuncts(conjuncts.get(false)));
+                rewrittenNode = new FilterNode(idAllocator.getNextId(), rewrittenNode, combineConjuncts(conjuncts.get(false)));
             }
 
-            return output;
+            return rewrittenNode;
         }
 
         @Override
@@ -348,7 +347,7 @@ public class PredicatePushDown
             newJoinPredicate = simplifyExpression(newJoinPredicate);
             // TODO: find a better way to directly optimize FALSE LITERAL in join predicate
             if (newJoinPredicate.equals(BooleanLiteral.FALSE_LITERAL)) {
-                newJoinPredicate = new ComparisonExpression(ComparisonExpression.Type.EQUAL, new LongLiteral("0"), new LongLiteral("1"));
+                newJoinPredicate = new ComparisonExpression(ComparisonExpressionType.EQUAL, new LongLiteral("0"), new LongLiteral("1"));
             }
 
             PlanNode leftSource = context.rewrite(node.getLeft(), leftPredicate);
@@ -671,7 +670,7 @@ public class PredicatePushDown
 
         private static Expression equalsExpression(Symbol symbol1, Symbol symbol2)
         {
-            return new ComparisonExpression(ComparisonExpression.Type.EQUAL,
+            return new ComparisonExpression(ComparisonExpressionType.EQUAL,
                     symbol1.toSymbolReference(),
                     symbol2.toSymbolReference());
         }
@@ -765,7 +764,7 @@ public class PredicatePushDown
                 // At this point in time, our join predicates need to be deterministic
                 if (isDeterministic(expression) && expression instanceof ComparisonExpression) {
                     ComparisonExpression comparison = (ComparisonExpression) expression;
-                    if (comparison.getType() == ComparisonExpression.Type.EQUAL) {
+                    if (comparison.getType() == ComparisonExpressionType.EQUAL) {
                         Set<Symbol> symbols1 = DependencyExtractor.extractUnique(comparison.getLeft());
                         Set<Symbol> symbols2 = DependencyExtractor.extractUnique(comparison.getRight());
                         if (symbols1.isEmpty() || symbols2.isEmpty()) {

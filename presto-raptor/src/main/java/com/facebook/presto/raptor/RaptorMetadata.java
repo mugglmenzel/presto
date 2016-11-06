@@ -23,6 +23,7 @@ import com.facebook.presto.raptor.metadata.Table;
 import com.facebook.presto.raptor.metadata.TableColumn;
 import com.facebook.presto.raptor.metadata.ViewResult;
 import com.facebook.presto.spi.ColumnHandle;
+import com.facebook.presto.spi.ColumnIdentity;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorInsertTableHandle;
 import com.facebook.presto.spi.ConnectorNewTableLayout;
@@ -85,12 +86,14 @@ import static com.facebook.presto.raptor.RaptorTableProperties.BUCKETED_ON_PROPE
 import static com.facebook.presto.raptor.RaptorTableProperties.BUCKET_COUNT_PROPERTY;
 import static com.facebook.presto.raptor.RaptorTableProperties.DISTRIBUTION_NAME_PROPERTY;
 import static com.facebook.presto.raptor.RaptorTableProperties.ORDERING_PROPERTY;
+import static com.facebook.presto.raptor.RaptorTableProperties.ORGANIZED_PROPERTY;
 import static com.facebook.presto.raptor.RaptorTableProperties.TEMPORAL_COLUMN_PROPERTY;
 import static com.facebook.presto.raptor.RaptorTableProperties.getBucketColumns;
 import static com.facebook.presto.raptor.RaptorTableProperties.getBucketCount;
 import static com.facebook.presto.raptor.RaptorTableProperties.getDistributionName;
 import static com.facebook.presto.raptor.RaptorTableProperties.getSortColumns;
 import static com.facebook.presto.raptor.RaptorTableProperties.getTemporalColumn;
+import static com.facebook.presto.raptor.RaptorTableProperties.isOrganized;
 import static com.facebook.presto.raptor.util.DatabaseUtil.daoTransaction;
 import static com.facebook.presto.raptor.util.DatabaseUtil.onDemandDao;
 import static com.facebook.presto.raptor.util.DatabaseUtil.runIgnoringConstraintViolation;
@@ -173,6 +176,7 @@ public class RaptorMetadata
                 table.getDistributionId(),
                 table.getDistributionName(),
                 table.getBucketCount(),
+                table.isOrganized(),
                 OptionalLong.empty(),
                 false);
     }
@@ -208,6 +212,10 @@ public class RaptorMetadata
 
         handle.getBucketCount().ifPresent(bucketCount -> properties.put(BUCKET_COUNT_PROPERTY, bucketCount));
         handle.getDistributionName().ifPresent(distributionName -> properties.put(DISTRIBUTION_NAME_PROPERTY, distributionName));
+        // Only display organization property if set
+        if (handle.isOrganized()) {
+            properties.put(ORGANIZED_PROPERTY, true);
+        }
 
         List<ColumnMetadata> columns = tableColumns.stream()
                 .map(TableColumn::toColumnMetadata)
@@ -485,6 +493,16 @@ public class RaptorMetadata
             }
         }
 
+        boolean organized = isOrganized(tableMetadata.getProperties());
+        if (organized) {
+            if (temporalColumnHandle.isPresent()) {
+                throw new PrestoException(NOT_SUPPORTED, "Table with temporal columns cannot be organized");
+            }
+            if (sortColumnHandles.isEmpty()) {
+                throw new PrestoException(NOT_SUPPORTED, "Table organization requires an ordering");
+            }
+        }
+
         long transactionId = shardManager.beginTransaction();
 
         setTransactionId(transactionId);
@@ -504,6 +522,7 @@ public class RaptorMetadata
                 temporalColumnHandle,
                 distribution.map(info -> OptionalLong.of(info.getDistributionId())).orElse(OptionalLong.empty()),
                 distribution.map(info -> OptionalInt.of(info.getBucketCount())).orElse(OptionalInt.empty()),
+                organized,
                 distribution.map(DistributionInfo::getBucketColumns).orElse(ImmutableList.of()));
     }
 
@@ -566,7 +585,7 @@ public class RaptorMetadata
 
             Long distributionId = table.getDistributionId().isPresent() ? table.getDistributionId().getAsLong() : null;
             // TODO: update default value of organization_enabled to true
-            long tableId = dao.insertTable(table.getSchemaName(), table.getTableName(), true, false, distributionId, updateTime);
+            long tableId = dao.insertTable(table.getSchemaName(), table.getTableName(), true, table.isOrganized(), distributionId, updateTime);
 
             List<RaptorColumnHandle> sortColumnHandles = table.getSortColumnHandles();
             List<RaptorColumnHandle> bucketColumnHandles = table.getBucketColumnHandles();
@@ -591,8 +610,12 @@ public class RaptorMetadata
 
         List<ColumnInfo> columns = table.getColumnHandles().stream().map(ColumnInfo::fromHandle).collect(toList());
 
+        OptionalLong temporalColumnId = table.getTemporalColumnHandle().map(RaptorColumnHandle::getColumnId)
+                .map(OptionalLong::of)
+                .orElse(OptionalLong.empty());
+
         // TODO: refactor this to avoid creating an empty table on failure
-        shardManager.createTable(newTableId, columns, table.getBucketCount().isPresent());
+        shardManager.createTable(newTableId, columns, table.getBucketCount().isPresent(), temporalColumnId);
         shardManager.commitShards(transactionId, newTableId, columns, parseFragments(fragments), Optional.empty(), updateTime);
 
         clearRollback();
@@ -689,6 +712,7 @@ public class RaptorMetadata
                 handle.getDistributionId(),
                 handle.getDistributionName(),
                 handle.getBucketCount(),
+                handle.isOrganized(),
                 OptionalLong.of(transactionId),
                 true);
     }
@@ -783,6 +807,32 @@ public class RaptorMetadata
     private boolean viewExists(ConnectorSession session, SchemaTableName viewName)
     {
         return !getViews(session, viewName.toSchemaTablePrefix()).isEmpty();
+    }
+
+    @Override
+    public RaptorTableIdentity getTableIdentity(ConnectorTableHandle connectorTableHandle)
+    {
+        RaptorTableHandle handle = checkType(connectorTableHandle, RaptorTableHandle.class, "connectorTableHandle");
+        return new RaptorTableIdentity(handle.getTableId());
+    }
+
+    @Override
+    public RaptorTableIdentity deserializeTableIdentity(byte[] bytes)
+    {
+        return RaptorTableIdentity.deserialize(bytes);
+    }
+
+    @Override
+    public ColumnIdentity getColumnIdentity(ColumnHandle columnHandle)
+    {
+        RaptorColumnHandle handle = checkType(columnHandle, RaptorColumnHandle.class, "columnHandle");
+        return new RaptorColumnIdentity(handle.getColumnId());
+    }
+
+    @Override
+    public RaptorColumnIdentity deserializeColumnIdentity(byte[] bytes)
+    {
+        return RaptorColumnIdentity.deserialize(bytes);
     }
 
     private RaptorColumnHandle getRaptorColumnHandle(TableColumn tableColumn)

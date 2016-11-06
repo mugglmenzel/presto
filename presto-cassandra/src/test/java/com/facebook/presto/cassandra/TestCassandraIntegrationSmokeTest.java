@@ -43,26 +43,4 @@ public class TestCassandraIntegrationSmokeTest
         queryRunner.execute(createCassandraSession(keyspace), "select * from presto_test where key='key 2'");
         queryRunner.execute(createCassandraSession(keyspace), "select * from presto_test where key='key 3'");
     }
-
-    @Override
-    public void testViewAccessControl()
-    {
-        // cassandra does not support views
-    }
-
-    @Test
-    public void testMultipleStringPartitionKeys()
-    {
-        initializeTestData(new Date());
-
-        queryRunner.execute(createCassandraSession("presto_database"), "select * from presto_database.presto_test where key='key 1' or key='key 2'");
-    }
-
-    @Test
-    public void testAllPartitions()
-    {
-        initializeTestData(new Date());
-
-        queryRunner.execute(createCassandraSession("presto_database"), "select * from presto_database.presto_test");
-    }
 }
