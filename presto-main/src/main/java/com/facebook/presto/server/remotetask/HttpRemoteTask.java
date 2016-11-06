@@ -81,12 +81,14 @@ import static com.facebook.presto.util.Failures.toFailure;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkState;
+import static io.airlift.concurrent.MoreFutures.unmodifiableFuture;
 import static io.airlift.http.client.FullJsonResponseHandler.createFullJsonResponseHandler;
 import static io.airlift.http.client.HttpUriBuilder.uriBuilderFrom;
 import static io.airlift.http.client.JsonBodyGenerator.jsonBodyGenerator;
 import static io.airlift.http.client.Request.Builder.prepareDelete;
 import static io.airlift.http.client.Request.Builder.preparePost;
 import static java.util.Objects.requireNonNull;
+import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
@@ -96,6 +98,7 @@ public final class HttpRemoteTask
     private static final Logger log = Logger.get(HttpRemoteTask.class);
     private static final Duration MAX_CLEANUP_RETRY_TIME = new Duration(2, TimeUnit.MINUTES);
     private static final int MIN_RETRIES = 3;
+    private static final double SPLIT_QUEUE_FILL_RATIO = 2.0;
 
     private final TaskId taskId;
 
@@ -108,6 +111,7 @@ public final class HttpRemoteTask
     private final RemoteTaskStats stats;
     private final TaskInfoFetcher taskInfoFetcher;
     private final ContinuousTaskStatusFetcher taskStatusFetcher;
+    private final int maxPendingSplits;
 
     @GuardedBy("this")
     private Future<?> currentRequest;
@@ -122,6 +126,10 @@ public final class HttpRemoteTask
     private final Set<PlanNodeId> noMoreSplits = new HashSet<>();
     @GuardedBy("this")
     private final AtomicReference<OutputBuffers> outputBuffers = new AtomicReference<>();
+    @GuardedBy("this")
+    private CompletableFuture<?> whenSplitQueueHasSpace = new CompletableFuture<>();
+    @GuardedBy("this")
+    private CompletableFuture<?> unmodifiableWhenSplitQueueHasSpace = new CompletableFuture<>();
 
     private final boolean summarizeTaskInfo;
     private final Duration requestTimeout;
@@ -154,6 +162,7 @@ public final class HttpRemoteTask
             Duration minErrorDuration,
             Duration taskStatusRefreshMaxWait,
             Duration taskInfoUpdateInterval,
+            int maxPendingSplits,
             boolean summarizeTaskInfo,
             JsonCodec<TaskStatus> taskStatusCodec,
             JsonCodec<TaskInfo> taskInfoCodec,
@@ -188,6 +197,7 @@ public final class HttpRemoteTask
             this.taskInfoCodec = taskInfoCodec;
             this.taskUpdateRequestCodec = taskUpdateRequestCodec;
             this.updateErrorTracker = new RequestErrorTracker(taskId, location, minErrorDuration, errorScheduledExecutor, "updating task");
+            this.maxPendingSplits = maxPendingSplits;
             this.partitionedSplitCountTracker = requireNonNull(partitionedSplitCountTracker, "partitionedSplitCountTracker is null");
             this.stats = stats;
 
@@ -238,12 +248,14 @@ public final class HttpRemoteTask
                 }
                 else {
                     partitionedSplitCountTracker.setPartitionedSplitCount(getPartitionedSplitCount());
+                    updateSplitQueueSpace();
                 }
             });
 
             long timeout = minErrorDuration.toMillis() / MIN_RETRIES;
             this.requestTimeout = new Duration(timeout + taskStatusRefreshMaxWait.toMillis(), MILLISECONDS);
             partitionedSplitCountTracker.setPartitionedSplitCount(getPartitionedSplitCount());
+            updateSplitQueueSpace();
         }
     }
 
@@ -286,34 +298,33 @@ public final class HttpRemoteTask
     @Override
     public synchronized void addSplits(Multimap<PlanNodeId, Split> splitsBySource)
     {
-        try (SetThreadName ignored = new SetThreadName("HttpRemoteTask-%s", taskId)) {
-            requireNonNull(splitsBySource, "splitsBySource is null");
+        requireNonNull(splitsBySource, "splitsBySource is null");
 
-            // only add pending split if not done
-            if (getTaskStatus().getState().isDone()) {
-                return;
-            }
-
-            for (Entry<PlanNodeId, Collection<Split>> entry : splitsBySource.asMap().entrySet()) {
-                PlanNodeId sourceId = entry.getKey();
-                Collection<Split> splits = entry.getValue();
-
-                checkState(!noMoreSplits.contains(sourceId), "noMoreSplits has already been set for %s", sourceId);
-                int added = 0;
-                for (Split split : splits) {
-                    if (pendingSplits.put(sourceId, new ScheduledSplit(nextSplitId.getAndIncrement(), sourceId, split))) {
-                        added++;
-                    }
-                }
-                if (planFragment.isPartitionedSources(sourceId)) {
-                    pendingSourceSplitCount += added;
-                    partitionedSplitCountTracker.setPartitionedSplitCount(getPartitionedSplitCount());
-                }
-                needsUpdate.set(true);
-            }
-
-            scheduleUpdate();
+        // only add pending split if not done
+        if (getTaskStatus().getState().isDone()) {
+            return;
         }
+
+        for (Entry<PlanNodeId, Collection<Split>> entry : splitsBySource.asMap().entrySet()) {
+            PlanNodeId sourceId = entry.getKey();
+            Collection<Split> splits = entry.getValue();
+
+            checkState(!noMoreSplits.contains(sourceId), "noMoreSplits has already been set for %s", sourceId);
+            int added = 0;
+            for (Split split : splits) {
+                if (pendingSplits.put(sourceId, new ScheduledSplit(nextSplitId.getAndIncrement(), sourceId, split))) {
+                    added++;
+                }
+            }
+            if (planFragment.isPartitionedSources(sourceId)) {
+                pendingSourceSplitCount += added;
+                partitionedSplitCountTracker.setPartitionedSplitCount(getPartitionedSplitCount());
+            }
+            needsUpdate.set(true);
+        }
+        updateSplitQueueSpace();
+
+        scheduleUpdate();
     }
 
     @Override
@@ -374,9 +385,39 @@ public final class HttpRemoteTask
     }
 
     @Override
-    public CompletableFuture<TaskStatus> getStateChange(TaskStatus taskStatus)
+    public synchronized CompletableFuture<?> whenSplitQueueHasSpace()
     {
-        return taskStatusFetcher.getStateChange(taskStatus);
+        return unmodifiableWhenSplitQueueHasSpace;
+    }
+
+    private synchronized void updateSplitQueueSpace()
+    {
+        if (getQueuedPartitionedSplitCount() < Math.ceil(maxPendingSplits / SPLIT_QUEUE_FILL_RATIO)) {
+            if (!whenSplitQueueHasSpace.isDone()) {
+                fireSplitQueueHasSpace(whenSplitQueueHasSpace);
+                whenSplitQueueHasSpace = completedFuture(null);
+                unmodifiableWhenSplitQueueHasSpace = unmodifiableFuture(whenSplitQueueHasSpace);
+            }
+        }
+        else {
+            if (whenSplitQueueHasSpace.isDone()) {
+                whenSplitQueueHasSpace = new CompletableFuture<>();
+                unmodifiableWhenSplitQueueHasSpace = unmodifiableFuture(whenSplitQueueHasSpace);
+            }
+        }
+    }
+
+    private void fireSplitQueueHasSpace(CompletableFuture<?> future)
+    {
+        executor.execute(() -> {
+            checkState(!Thread.holdsLock(this), "Can not notify split queue future while holding the lock");
+            try {
+                future.complete(null);
+            }
+            catch (Throwable e) {
+                log.error(e, "Error notifying split queue future for %s", taskId);
+            }
+        });
     }
 
     private synchronized void processTaskUpdate(TaskInfo newValue, List<TaskSource> sources)
@@ -396,6 +437,7 @@ public final class HttpRemoteTask
                 pendingSourceSplitCount -= removed;
             }
         }
+        updateSplitQueueSpace();
 
         partitionedSplitCountTracker.setPartitionedSplitCount(getPartitionedSplitCount());
     }
@@ -517,6 +559,11 @@ public final class HttpRemoteTask
         pendingSplits.clear();
         pendingSourceSplitCount = 0;
         partitionedSplitCountTracker.setPartitionedSplitCount(getPartitionedSplitCount());
+        if (!whenSplitQueueHasSpace.isDone()) {
+            fireSplitQueueHasSpace(whenSplitQueueHasSpace);
+            whenSplitQueueHasSpace = completedFuture(null);
+            unmodifiableWhenSplitQueueHasSpace = unmodifiableFuture(whenSplitQueueHasSpace);
+        }
 
         // cancel pending request
         if (currentRequest != null) {

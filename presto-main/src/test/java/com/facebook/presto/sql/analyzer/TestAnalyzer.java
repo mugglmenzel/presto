@@ -34,15 +34,16 @@ import com.facebook.presto.security.AccessControl;
 import com.facebook.presto.security.AccessControlManager;
 import com.facebook.presto.security.AllowAllAccessControl;
 import com.facebook.presto.spi.ColumnMetadata;
-import com.facebook.presto.spi.ConnectorMetadata;
-import com.facebook.presto.spi.ConnectorSplitManager;
 import com.facebook.presto.spi.ConnectorTableMetadata;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.connector.Connector;
+import com.facebook.presto.spi.connector.ConnectorMetadata;
+import com.facebook.presto.spi.connector.ConnectorSplitManager;
+import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
+import com.facebook.presto.spi.transaction.IsolationLevel;
 import com.facebook.presto.spi.type.TypeManager;
 import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.tree.Statement;
-import com.facebook.presto.transaction.LegacyTransactionConnector;
 import com.facebook.presto.transaction.TransactionManager;
 import com.facebook.presto.type.ArrayType;
 import com.facebook.presto.type.TypeRegistry;
@@ -79,6 +80,7 @@ import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MISSING_CATALOG
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MISSING_COLUMN;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MISSING_SCHEMA;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MISSING_TABLE;
+import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MULTIPLE_FIELDS_FROM_SUBQUERY;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MUST_BE_AGGREGATE_OR_GROUP_BY;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.NESTED_AGGREGATION;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.NESTED_WINDOW;
@@ -1006,6 +1008,32 @@ public class TestAnalyzer
         assertFails(TYPE_MISMATCH, "SELECT * FROM (VALUES (2, 2)) a(x,y) JOIN (VALUES (2, 2)) b(x,y) ON (a.x=b.x, a.y=b.y)");
     }
 
+    @Test
+    public void testInvalidAggregationFilter()
+            throws Exception
+    {
+        assertFails(NOT_SUPPORTED, "SELECT sum(x) FILTER (WHERE x > 1) OVER (PARTITION BY x) FROM (VALUES (1), (2), (2), (4)) t (x)");
+        assertFails(NOT_SUPPORTED, "SELECT count(DISTINCT x) FILTER (where y = 1) FROM (VALUES (1, 1)) t(x, y)");
+    }
+
+    @Test
+    public void testQuantifiedComparisonExpression()
+            throws Exception
+    {
+        analyze("SELECT * FROM t1 WHERE t1.a <= ALL (VALUES 10, 20)");
+        assertFails(MULTIPLE_FIELDS_FROM_SUBQUERY, "SELECT * FROM t1 WHERE t1.a = ANY (SELECT 1, 2)");
+        assertFails(TYPE_MISMATCH, "SELECT * FROM t1 WHERE t1.a = SOME (VALUES ('abc'))");
+
+        // map is not orderable
+        assertFails(TYPE_MISMATCH, ("SELECT map(ARRAY[1], ARRAY['hello']) < ALL (VALUES map(ARRAY[1], ARRAY['hello']))"));
+        // but map is comparable
+        analyze(("SELECT map(ARRAY[1], ARRAY['hello']) = ALL (VALUES map(ARRAY[1], ARRAY['hello']))"));
+
+        // HLL is neither orderable nor comparable
+        assertFails(TYPE_MISMATCH, "SELECT cast(NULL AS HyperLogLog) < ALL (VALUES cast(NULL AS HyperLogLog))");
+        assertFails(TYPE_MISMATCH, "SELECT cast(NULL AS HyperLogLog) = ANY (VALUES cast(NULL AS HyperLogLog))");
+    }
+
     @BeforeMethod(alwaysRun = true)
     public void setup()
             throws Exception
@@ -1197,15 +1225,20 @@ public class TestAnalyzer
                         transactionId -> transactionManager.getConnectorTransaction(transactionId, connectorId)));
     }
 
-    @SuppressWarnings("deprecation")
     private static Connector createTestingConnector()
     {
-        return new LegacyTransactionConnector(new com.facebook.presto.spi.Connector()
+        return new Connector()
         {
             private final ConnectorMetadata metadata = new TestingMetadata();
 
             @Override
-            public ConnectorMetadata getMetadata()
+            public ConnectorTransactionHandle beginTransaction(IsolationLevel isolationLevel, boolean readOnly)
+            {
+                return new ConnectorTransactionHandle() {};
+            }
+
+            @Override
+            public ConnectorMetadata getMetadata(ConnectorTransactionHandle transaction)
             {
                 return metadata;
             }
@@ -1215,6 +1248,6 @@ public class TestAnalyzer
             {
                 throw new UnsupportedOperationException();
             }
-        });
+        };
     }
 }
