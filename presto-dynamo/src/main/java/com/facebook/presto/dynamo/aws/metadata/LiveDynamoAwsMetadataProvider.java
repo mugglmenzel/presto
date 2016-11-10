@@ -15,10 +15,7 @@ package com.facebook.presto.dynamo.aws.metadata;
 
 import com.amazonaws.regions.RegionUtils;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
-import com.amazonaws.services.dynamodbv2.model.AmazonDynamoDBException;
-import com.amazonaws.services.dynamodbv2.model.AttributeDefinition;
-import com.amazonaws.services.dynamodbv2.model.ScalarAttributeType;
-import com.amazonaws.services.dynamodbv2.model.ScanRequest;
+import com.amazonaws.services.dynamodbv2.model.*;
 import com.facebook.presto.dynamo.DynamoClientConfig;
 import com.facebook.presto.dynamo.DynamoSession;
 import io.airlift.log.Logger;
@@ -75,23 +72,30 @@ public class LiveDynamoAwsMetadataProvider implements DynamoAwsMetadataProvider 
                 public List<DynamoTableAwsMetadata> executeWithClient(AmazonDynamoDB client) {
                     List<DynamoTableAwsMetadata> awsTabs = new ArrayList<>();
                     try {
-                        for (String table : client.listTables().getTableNames()) {
-                            Log.info("Adding table " + table + " to the metadata.");
+                        ListTablesResult tables = client.listTables();
+                        String lastKey = tables.getLastEvaluatedTableName();
+                        while(lastKey != null) {
+                            for (String table : tables.getTableNames()) {
+                                Log.info("Adding table " + table + " to the metadata.");
 
-                            List<DynamoColumnAwsMetadata> cols = new ArrayList<>();
-                            client.scan(new ScanRequest().withLimit(1).withTableName(table)).getItems().stream().findFirst().map(m -> m.keySet().stream().map(c -> new AttributeDefinition().withAttributeName(c).withAttributeType(ScalarAttributeType.S)))
-                                    .orElse(client.describeTable(table).getTable().getAttributeDefinitions().stream()).forEach(col -> {
-                                Log.info("Adding column " + col + " to the metadata.");
-                                DynamoColumnAwsMetadata awsCol = new DynamoColumnAwsMetadata();
-                                awsCol.setColumnName(col.getAttributeName().toLowerCase());
-                                awsCol.setColumnType(AwsDynamoToPrestoTypeMapper.map(col.getAttributeType()));
-                                cols.add(awsCol);
-                            });
-                            DynamoTableAwsMetadata awsMeta = new DynamoTableAwsMetadata();
-                            awsMeta.setRegion(r.getName());
-                            awsMeta.setTableName(table);
-                            awsMeta.setColumns(cols);
-                            awsTabs.add(awsMeta);
+                                List<DynamoColumnAwsMetadata> cols = new ArrayList<>();
+                                client.scan(new ScanRequest().withLimit(1).withTableName(table)).getItems().stream().findFirst().map(m -> m.keySet().stream().map(c -> new AttributeDefinition().withAttributeName(c).withAttributeType(ScalarAttributeType.S)))
+                                        .orElse(client.describeTable(table).getTable().getAttributeDefinitions().stream()).forEach(col -> {
+                                    Log.info("Adding column " + col + " to the metadata.");
+                                    DynamoColumnAwsMetadata awsCol = new DynamoColumnAwsMetadata();
+                                    awsCol.setColumnName(col.getAttributeName().toLowerCase());
+                                    awsCol.setColumnType(AwsDynamoToPrestoTypeMapper.map(col.getAttributeType()));
+                                    cols.add(awsCol);
+                                });
+                                DynamoTableAwsMetadata awsMeta = new DynamoTableAwsMetadata();
+                                awsMeta.setRegion(r.getName());
+                                awsMeta.setTableName(table);
+                                awsMeta.setColumns(cols);
+                                awsTabs.add(awsMeta);
+                            }
+
+                            tables = client.listTables(lastKey);
+                            lastKey = tables.getLastEvaluatedTableName();
                         }
                     } catch (AmazonDynamoDBException e) {
                         Log.warn("Could not fetch tables for region " + r.getName() + ".");
