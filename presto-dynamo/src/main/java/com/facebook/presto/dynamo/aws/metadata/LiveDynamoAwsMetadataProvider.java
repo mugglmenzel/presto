@@ -72,9 +72,11 @@ public class LiveDynamoAwsMetadataProvider implements DynamoAwsMetadataProvider 
                 public List<DynamoTableAwsMetadata> executeWithClient(AmazonDynamoDB client) {
                     List<DynamoTableAwsMetadata> awsTabs = new ArrayList<>();
                     try {
-                        ListTablesResult tables = client.listTables();
-                        String lastKey = tables.getLastEvaluatedTableName();
-                        while(lastKey != null) {
+                        ListTablesResult tables;
+                        do {
+                            tables = client.listTables();
+                            Log.info("Got tables: " + tables.getTableNames());
+                            Log.info("Got last evaluated table: " + tables.getLastEvaluatedTableName());
                             for (String table : tables.getTableNames()) {
                                 Log.info("Adding table " + table + " to the metadata.");
 
@@ -94,9 +96,7 @@ public class LiveDynamoAwsMetadataProvider implements DynamoAwsMetadataProvider 
                                 awsTabs.add(awsMeta);
                             }
 
-                            tables = client.listTables(lastKey);
-                            lastKey = tables.getLastEvaluatedTableName();
-                        }
+                        } while(tables.getLastEvaluatedTableName() != null);
                     } catch (AmazonDynamoDBException e) {
                         Log.warn("Could not fetch tables for region " + r.getName() + ".");
                     }
