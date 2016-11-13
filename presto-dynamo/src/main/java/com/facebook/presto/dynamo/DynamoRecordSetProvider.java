@@ -57,14 +57,14 @@ public class DynamoRecordSetProvider
     @Override
     public RecordSet getRecordSet(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorSplit split, List<? extends ColumnHandle> columns) {
         session = DynamoSession.fromConnectorSession(session);
-        Log.info("Session for records is: " + session);
+        Log.debug("Session for records is: " + session);
         DynamoSession dynamoSession = checkType(session, DynamoSession.class, "session");
         DynamoSplit dynamoSplit = checkType(split, DynamoSplit.class, "split");
 
         checkNotNull(columns, "columns is null");
         List<DynamoColumnHandle> dynamoColumns = ImmutableList.copyOf(transform(columns, DynamoColumnHandle.dynamoColumnHandle()));
 
-        Log.info("Creating record set: %s", dynamoSplit.getTable());
+        Log.debug("Creating record set: %s", dynamoSplit.getTable());
 
         String schema = dynamoSplit.getSchema();
         String tableName = dynamoSplit.getTable();

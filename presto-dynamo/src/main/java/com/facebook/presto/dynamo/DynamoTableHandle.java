@@ -13,19 +13,17 @@
  */
 package com.facebook.presto.dynamo;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.util.Objects;
-
 import com.facebook.presto.spi.ConnectorTableHandle;
 import com.facebook.presto.spi.SchemaTableName;
-import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.util.Objects;
+
+import static com.google.common.base.Preconditions.checkNotNull;
+
 public class DynamoTableHandle
-        implements ConnectorTableHandle
-{
+        implements ConnectorTableHandle {
     private final String connectorId;
     private final String schemaName;
     private final String tableName;
@@ -34,45 +32,38 @@ public class DynamoTableHandle
     public DynamoTableHandle(
             @JsonProperty("connectorId") String connectorId,
             @JsonProperty("schemaName") String schemaName,
-            @JsonProperty("tableName") String tableName)
-    {
+            @JsonProperty("tableName") String tableName) {
         this.connectorId = checkNotNull(connectorId, "connectorId is null");
         this.schemaName = checkNotNull(schemaName, "schemaName is null");
         this.tableName = checkNotNull(tableName, "tableName is null");
     }
 
     @JsonProperty
-    public String getConnectorId()
-    {
+    public String getConnectorId() {
         return connectorId;
     }
 
     @JsonProperty
-    public String getSchemaName()
-    {
+    public String getSchemaName() {
         return schemaName;
     }
 
     @JsonProperty
-    public String getTableName()
-    {
+    public String getTableName() {
         return tableName;
     }
 
-    public SchemaTableName getSchemaTableName()
-    {
+    public SchemaTableName getSchemaTableName() {
         return new SchemaTableName(schemaName, tableName);
     }
 
     @Override
-    public int hashCode()
-    {
+    public int hashCode() {
         return Objects.hash(connectorId, schemaName, tableName);
     }
 
     @Override
-    public boolean equals(Object obj)
-    {
+    public boolean equals(Object obj) {
         if (this == obj) {
             return true;
         }
@@ -86,8 +77,7 @@ public class DynamoTableHandle
     }
 
     @Override
-    public String toString()
-    {
+    public String toString() {
         return connectorId + ":" + schemaName + ":" + tableName;
     }
 }

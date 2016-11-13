@@ -16,53 +16,44 @@ package com.facebook.presto.dynamo.aws.metadata;
 import java.util.ArrayList;
 import java.util.List;
 
-public class DynamoTableAwsMetadata
-{
+public class DynamoTableAwsMetadata {
     private String region;
     private String tableName;
     private List<DynamoColumnAwsMetadata> columns;
 
-    public DynamoTableAwsMetadata()
-    {
+    public DynamoTableAwsMetadata() {
         this.columns = new ArrayList<DynamoColumnAwsMetadata>();
     }
 
     public DynamoTableAwsMetadata(String region, String tableName,
-            List<DynamoColumnAwsMetadata> columns)
-    {
+                                  List<DynamoColumnAwsMetadata> columns) {
         this.region = region;
         this.tableName = tableName;
         this.columns = columns == null ? new ArrayList<DynamoColumnAwsMetadata>()
                 : columns;
     }
 
-    public String getRegion()
-    {
+    public String getRegion() {
         return region;
     }
 
-    public void setRegion(String region)
-    {
+    public void setRegion(String region) {
         this.region = region;
     }
 
-    public String getTableName()
-    {
+    public String getTableName() {
         return tableName;
     }
 
-    public void setTableName(String tableName)
-    {
+    public void setTableName(String tableName) {
         this.tableName = tableName;
     }
 
-    public List<DynamoColumnAwsMetadata> getColumns()
-    {
+    public List<DynamoColumnAwsMetadata> getColumns() {
         return columns;
     }
 
-    public void setColumns(List<DynamoColumnAwsMetadata> columns)
-    {
+    public void setColumns(List<DynamoColumnAwsMetadata> columns) {
         this.columns = columns == null ? new ArrayList<DynamoColumnAwsMetadata>()
                 : columns;
     }

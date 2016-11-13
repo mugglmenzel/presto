@@ -14,7 +14,10 @@
 package com.facebook.presto.dynamo;
 
 import com.facebook.presto.dynamo.aws.metadata.DynamoAwsMetadataProvider;
-import com.facebook.presto.spi.*;
+import com.facebook.presto.spi.ConnectorSession;
+import com.facebook.presto.spi.ConnectorSplitSource;
+import com.facebook.presto.spi.ConnectorTableLayoutHandle;
+import com.facebook.presto.spi.FixedSplitSource;
 import com.facebook.presto.spi.connector.ConnectorSplitManager;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.google.common.collect.ImmutableList;
@@ -56,38 +59,37 @@ public class DynamoSplitManager
 
     @Override
     public ConnectorSplitSource getSplits(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorTableLayoutHandle layout) {
-        session = DynamoSession.fromConnectorSession(session);
-        Log.info("Session for splits is: " +session);
         DynamoTableLayoutHandle dynamoTableLayoutHandle = checkType(layout, DynamoTableLayoutHandle.class, "layout");
-        DynamoSession dynamoSession = checkType(session, DynamoSession.class, "session");
 
-        Log.info("Getting splits ...");
+        Log.debug(String.format("Getting splits in schema provider %s ...", schemaProvider));
 
-        return new FixedSplitSource(getSplitsList(dynamoSession, dynamoTableLayoutHandle));
+        return new FixedSplitSource(getSplitsList(dynamoTableLayoutHandle));
     }
 
 
-
-    public List<DynamoSplit> getSplitsList(DynamoSession session, DynamoTableLayoutHandle dynamoTableLayoutHandle) {
-        return getSplitsList(session, dynamoTableLayoutHandle.getTable());
+    public List<DynamoSplit> getSplitsList(DynamoTableLayoutHandle dynamoTableLayoutHandle) {
+        return getSplitsList(dynamoTableLayoutHandle.getTable());
     }
 
-    public List<DynamoSplit> getSplitsList(DynamoSession session, DynamoTableHandle dynamoTableHandle) {
-            List<DynamoSplit> splits = new ArrayList<>();
-        Integer totalPartitions = numberOfSplits(session, dynamoTableHandle);
+    public List<DynamoSplit> getSplitsList(DynamoTableHandle dynamoTableHandle) {
+        List<DynamoSplit> splits = new ArrayList<>();
+        Integer totalPartitions = numberOfSplits(dynamoTableHandle);
         for (int i = 0; i < totalPartitions; i++)
             splits.add(new DynamoSplit(connectorId, dynamoTableHandle.getSchemaName(), dynamoTableHandle.getTableName(), i, totalPartitions, "", ImmutableList.of()));
         return splits;
     }
 
-    private Integer numberOfSplits(DynamoSession dynamoSession, DynamoTableHandle dynamoTableHandle) {
+    private Integer numberOfSplits(DynamoTableHandle dynamoTableHandle) {
+        Log.debug(String.format("Looking for table %s %s", dynamoTableHandle.getSchemaName(), dynamoTableHandle.getTableName()));
+        String tableName = schemaProvider.getMetadata().getAwsTableName(dynamoTableHandle.getSchemaName(), dynamoTableHandle.getTableName());
+        Log.debug(String.format("Found actual AWS table name %s", tableName));
         Long itemCount = dynamoSession
                 .getClient(dynamoTableHandle.getSchemaName())
-                .describeTable(dynamoSession.getAllTables(dynamoTableHandle.getSchemaName()).stream().filter(e -> e.equalsIgnoreCase(dynamoTableHandle.getTableName())).findFirst().orElse(""))
+                .describeTable(tableName)
                 .getTable()
                 .getItemCount();
 
-        Log.info("Returning splits: " + itemCount + "/" + clientConfig.getSplitSize());
+        Log.debug("Returning splits: " + itemCount + "/" + clientConfig.getSplitSize());
         return Math.max(itemCount.intValue() / clientConfig.getSplitSize(), clientConfig.getMinSplitCount());
     }
 

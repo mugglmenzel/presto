@@ -19,6 +19,7 @@ import com.amazonaws.services.dynamodbv2.model.*;
 import com.facebook.presto.dynamo.DynamoClientConfig;
 import com.facebook.presto.dynamo.DynamoSession;
 import io.airlift.log.Logger;
+import org.joda.time.format.DateTimeFormat;
 
 import javax.inject.Inject;
 import java.util.ArrayList;
@@ -73,17 +74,20 @@ public class LiveDynamoAwsMetadataProvider implements DynamoAwsMetadataProvider 
                     List<DynamoTableAwsMetadata> awsTabs = new ArrayList<>();
                     try {
                         ListTablesResult tables;
+                        String lastKey = null;
                         do {
-                            tables = client.listTables();
-                            Log.info("Got tables: " + tables.getTableNames());
-                            Log.info("Got last evaluated table: " + tables.getLastEvaluatedTableName());
+                            tables = client.listTables(lastKey);
+                            lastKey = tables.getLastEvaluatedTableName();
                             for (String table : tables.getTableNames()) {
-                                Log.info("Adding table " + table + " to the metadata.");
+                                Log.info(String.format("Adding table %s to the metadata.", table));
 
                                 List<DynamoColumnAwsMetadata> cols = new ArrayList<>();
-                                client.scan(new ScanRequest().withLimit(1).withTableName(table)).getItems().stream().findFirst().map(m -> m.keySet().stream().map(c -> new AttributeDefinition().withAttributeName(c).withAttributeType(ScalarAttributeType.S)))
-                                        .orElse(client.describeTable(table).getTable().getAttributeDefinitions().stream()).forEach(col -> {
-                                    Log.info("Adding column " + col + " to the metadata.");
+                                client.scan(new ScanRequest().withLimit(1).withTableName(table)).getItems().stream().findFirst().map(m ->
+                                        m.entrySet().stream().map(c ->
+                                                new AttributeDefinition().withAttributeName(c.getKey()).withAttributeType(detectType(c.getValue()))
+                                        )
+                                ).orElse(client.describeTable(table).getTable().getAttributeDefinitions().stream()).forEach(col -> {
+                                    Log.info(String.format("Adding column %s to the metadata.", col));
                                     DynamoColumnAwsMetadata awsCol = new DynamoColumnAwsMetadata();
                                     awsCol.setColumnName(col.getAttributeName().toLowerCase());
                                     awsCol.setColumnType(AwsDynamoToPrestoTypeMapper.map(col.getAttributeType()));
@@ -96,7 +100,7 @@ public class LiveDynamoAwsMetadataProvider implements DynamoAwsMetadataProvider 
                                 awsTabs.add(awsMeta);
                             }
 
-                        } while(tables.getLastEvaluatedTableName() != null);
+                        } while (!(lastKey == null || "".equals(lastKey)));
                     } catch (AmazonDynamoDBException e) {
                         Log.warn("Could not fetch tables for region " + r.getName() + ".");
                     }
@@ -107,5 +111,42 @@ public class LiveDynamoAwsMetadataProvider implements DynamoAwsMetadataProvider 
 
         Log.info("Generated new AWS Metadata: " + tempTablesMeta);
         return tempTablesMeta;
+    }
+
+    private String detectType(AttributeValue av) {
+        if(av == null) return "S";
+        if (av.getBOOL() != null) return "BOOL";
+        if (av.getB() != null) return "B";
+        if (av.getNULL() != null && av.getNULL()) return "NULL";
+        if (av.getN() != null) {
+            try {
+                Integer.parseInt(av.getN());
+                return "INT";
+            } catch (NumberFormatException e) {
+                Log.debug(String.format("Could not parse %s as Double.", av.getN()));
+            }
+            try {
+                Long.parseLong(av.getN());
+                return "LONG";
+            } catch (NumberFormatException e) {
+                Log.debug(String.format("Could not parse %s as Double.", av.getN()));
+            }
+            return "N";
+        }
+        if (av.getS() != null) {
+            try {
+                DateTimeFormat.forPattern("yyyy-MM-dd").parseDateTime(av.getS());
+                return "DATE";
+            } catch (IllegalArgumentException e) {
+                Log.debug(String.format("Could not parse %s as Date. Message: %s", av.getS(), e.getMessage()));
+            }
+            try {
+                DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss").parseDateTime(av.getS());
+                return "DATETIME";
+            } catch (IllegalArgumentException e) {
+                Log.debug(String.format("Could not parse %s as DateTime. Message: %s", av.getS(), e.getMessage()));
+            }
+        }
+        return "S";
     }
 }

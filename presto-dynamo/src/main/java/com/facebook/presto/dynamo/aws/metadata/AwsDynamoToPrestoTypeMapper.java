@@ -24,8 +24,19 @@ public class AwsDynamoToPrestoTypeMapper {
         switch (awsDynamoType) {
             case "S":
                 return DynamoType.STRING;
+            case "LONG":
+                return DynamoType.LONG;
+            case "INT":
+                return DynamoType.INT;
             case "N":
+            case "DOUBLE":
                 return DynamoType.DOUBLE;
+            case "BOOL":
+                return DynamoType.BOOLEAN;
+            case "DATE":
+                return DynamoType.DATE;
+            case "DATETIME":
+                return DynamoType.DATETIME;
             case "B":
                 return DynamoType.BINARY;
             default:

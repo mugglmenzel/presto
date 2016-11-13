@@ -131,7 +131,8 @@ public class DynamoRecordCursor implements RecordCursor {
     @Override
     public boolean getBoolean(int i) {
         String columnName = columnNames.get(i);
-        return currentRow.get(columnName).getBOOL();
+        AttributeValue value = extractAttributeValue(columnName);
+        return value.getBOOL();
     }
 
     @Override
@@ -147,19 +148,29 @@ public class DynamoRecordCursor implements RecordCursor {
     @Override
     public double getDouble(int i) {
         String columnName = columnNames.get(i);
-        return Double.parseDouble(currentRow.get(columnName).getS());
+        AttributeValue value = extractAttributeValue(columnName);
+        return Double.parseDouble(value.getN());
     }
 
     @Override
     public long getLong(int i) {
         String columnName = columnNames.get(i);
-        return Long.parseLong(currentRow.get(columnName).getN());
+        AttributeValue value = extractAttributeValue(columnName);
+        return Long.parseLong(value.getN());
     }
 
     @Override
     public Object getObject(int i) {
         String columnName = columnNames.get(i);
-        return currentRow.get(columnName).getS();
+        AttributeValue value = extractAttributeValue(columnName);
+        return value.getS();
+    }
+
+    private AttributeValue extractAttributeValue(String columnName) {
+        return currentRow.keySet().stream()
+                .filter(k -> k.equalsIgnoreCase(columnName))
+                .map(currentRow::get).findFirst()
+                .orElse(currentRow.get(columnName));
     }
 
     private DynamoType getDynamoType(int i) {
@@ -191,8 +202,7 @@ public class DynamoRecordCursor implements RecordCursor {
     @Override
     public boolean isNull(int i) {
         String columnName = columnNames.get(i);
-        AttributeValue attValue = currentRow.keySet().stream().filter(c -> c.equalsIgnoreCase(columnName)).findFirst().map(currentRow::get).orElse(null);
-        Log.info("Asked for isNULL: " + attValue);
+        AttributeValue attValue = extractAttributeValue(columnName);
         return attValue == null
                 || (attValue.isNULL() != null && attValue.isNULL());
     }

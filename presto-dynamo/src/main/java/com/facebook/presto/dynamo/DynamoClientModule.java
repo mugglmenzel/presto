@@ -94,7 +94,6 @@ public class DynamoClientModule
         checkNotNull(config, "config is null");
         checkNotNull(extraColumnMetadataCodec, "extraColumnMetadataCodec is null");
 
-        // TODO load DynamoMetadata from file
         return new DynamoSession(
                 connectorId.toString(),
                 "",

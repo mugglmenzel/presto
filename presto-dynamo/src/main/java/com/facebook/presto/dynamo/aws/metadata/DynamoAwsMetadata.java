@@ -13,14 +13,15 @@
  */
 package com.facebook.presto.dynamo.aws.metadata;
 
+import com.facebook.presto.dynamo.aws.AwsUtils;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import io.airlift.log.Logger;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-
-import com.facebook.presto.dynamo.aws.AwsUtils;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import io.airlift.log.Logger;
+import java.util.stream.Collectors;
 
 //JSON Example
 //{
@@ -62,24 +63,20 @@ import io.airlift.log.Logger;
 //    ]
 //}
 
-public class DynamoAwsMetadata
-{
+public class DynamoAwsMetadata {
     private Logger Log = Logger.get(DynamoAwsMetadata.class);
     private List<DynamoTableAwsMetadata> tables;
 
-    public DynamoAwsMetadata()
-    {
+    public DynamoAwsMetadata() {
         this.tables = new ArrayList<DynamoTableAwsMetadata>();
     }
 
     @JsonProperty
-    public List<DynamoTableAwsMetadata> getTables()
-    {
+    public List<DynamoTableAwsMetadata> getTables() {
         return tables;
     }
 
-    public DynamoAwsMetadata setTables(List<DynamoTableAwsMetadata> tables)
-    {
+    public DynamoAwsMetadata setTables(List<DynamoTableAwsMetadata> tables) {
         if (tables == null) {
             tables = new ArrayList<DynamoTableAwsMetadata>();
         }
@@ -88,8 +85,7 @@ public class DynamoAwsMetadata
         return this;
     }
 
-    public List<String> getRegionsAsSchemaNames()
-    {
+    public List<String> getRegionsAsSchemaNames() {
         Set<String> set = new HashSet<String>();
         for (DynamoTableAwsMetadata entry : tables) {
             set.add(AwsUtils.getRegionAsSchemaName(entry.getRegion()));
@@ -97,20 +93,16 @@ public class DynamoAwsMetadata
         return new ArrayList<String>(set);
     }
 
-    public List<String> getTableNames(String region)
-    {
-        Set<String> set = new HashSet<String>();
-        for (DynamoTableAwsMetadata entry : tables) {
-            if (entry.getRegion().equalsIgnoreCase(region)) {
-                set.add(entry.getTableName());
-            }
-        }
-        return new ArrayList<String>(set);
+    public List<String> getTableNames(String region) {
+        Log.info(String.format("Aware of tables %s", tables));
+        return tables.stream()
+                .filter(t -> t.getRegion().equalsIgnoreCase(region))
+                .map(DynamoTableAwsMetadata::getTableName)
+                .collect(Collectors.toList());
     }
 
-    public DynamoTableAwsMetadata getTable(String region, String tableName)
-    {
-        Log.info("Returning metadata for table " + tableName);
+    public DynamoTableAwsMetadata getTable(String region, String tableName) {
+        Log.info(String.format("Returning metadata for table %s", tableName));
         for (DynamoTableAwsMetadata entry : tables) {
             if (entry.getRegion().equalsIgnoreCase(region)
                     && entry.getTableName().equalsIgnoreCase(tableName)) {
@@ -120,14 +112,11 @@ public class DynamoAwsMetadata
         return null;
     }
 
-    public String getAwsTableName(String region, String tableName)
-    {
-        for (DynamoTableAwsMetadata entry : tables) {
-            if (entry.getRegion().equalsIgnoreCase(region)
-                    && entry.getTableName().equalsIgnoreCase(tableName)) {
-                return entry.getTableName();
-            }
-        }
-        return tableName;
+    public String getAwsTableName(String region, String tableName) {
+        List<String> tableNames = getTableNames(region);
+        Log.info(String.format("Looking in table names %s", tableNames));
+        return tableNames.stream()
+                .filter(t -> t.equalsIgnoreCase(tableName))
+                .findFirst().orElse(tableName);
     }
 }

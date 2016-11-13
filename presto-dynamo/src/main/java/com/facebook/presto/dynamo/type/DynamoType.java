@@ -20,6 +20,7 @@ import com.google.common.annotations.VisibleForTesting;
 import io.airlift.log.Logger;
 import org.apache.commons.codec.DecoderException;
 import org.apache.commons.codec.binary.Hex;
+import org.joda.time.format.DateTimeFormat;
 
 import java.nio.ByteBuffer;
 import java.util.*;
@@ -30,7 +31,10 @@ import static com.google.common.base.Preconditions.checkNotNull;
 public enum DynamoType implements FullDynamoType {
     STRING(VarcharType.VARCHAR, String.class),
     LONG(BigintType.BIGINT, Long.class),
+    INT(IntegerType.INTEGER, Integer.class),
     DOUBLE(DoubleType.DOUBLE, Double.class),
+    DATE(DateType.DATE, Date.class),
+    DATETIME(DateType.DATE, Date.class),
     BINARY(VarcharType.VARCHAR, ByteBuffer.class),
     BOOLEAN(BooleanType.BOOLEAN, Boolean.class),
     LIST(VarcharType.VARCHAR, null),
@@ -111,6 +115,10 @@ public enum DynamoType implements FullDynamoType {
                     return Long.parseLong(attValue.getN());
                 case DOUBLE:
                     return Double.parseDouble(attValue.getN());
+                case DATE:
+                    return buildDateValue(attValue.getS());
+                case DATETIME:
+                    return buildDateTimeValue(attValue.getS());
                 case BOOLEAN:
                     return attValue.getBOOL();
                 case BINARY:
@@ -130,6 +138,24 @@ public enum DynamoType implements FullDynamoType {
                             + dynamoType + " is not implemented");
             }
         }
+    }
+
+    private static Date buildDateValue(String value) {
+        try {
+            return DateTimeFormat.forPattern("yyyy-MM-dd").parseDateTime(value).toDate();
+        } catch(IllegalArgumentException e){
+            Log.debug(String.format("Could not parse %s as Date. Message: %s", value, e.getMessage()));
+        }
+        return null;
+    }
+
+    private static Date buildDateTimeValue(String value) {
+        try {
+            return DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss").parseDateTime(value).toDate();
+        } catch(IllegalArgumentException e){
+            Log.debug(String.format("Could not parse %s as DateTime. Message: %s", value, e.getMessage()));
+        }
+        return null;
     }
 
     private static String buildSetValue(Map<String, AttributeValue> row,

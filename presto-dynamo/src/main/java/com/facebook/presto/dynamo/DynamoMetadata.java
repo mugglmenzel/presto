@@ -153,11 +153,11 @@ public class DynamoMetadata implements ConnectorMetadata {
                 dynamoTableHandle.getTableName());
         ImmutableMap.Builder<String, ColumnHandle> columnHandles = ImmutableMap
                 .builder();
-        log.info("Metadata columns: " + table.getColumns());
+        log.debug("Metadata columns: " + table.getColumns());
         for (DynamoColumnHandle columnHandle : table.getColumns())
             columnHandles.put(columnHandle.getName(),
                     columnHandle);
-        log.info("Retrieved columnhandles: " + columnHandles.build());
+        log.debug("Retrieved columnhandles: " + columnHandles.build());
         return columnHandles.build();
     }
 

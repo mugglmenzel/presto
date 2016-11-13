@@ -92,24 +92,18 @@ public class DynamoSession implements ConnectorSession {
     }
 
     public List<String> getAllSchemas() {
-        return this.metadata.getRegionsAsSchemaNames();
+        return getMetadata().getRegionsAsSchemaNames();
     }
 
     public List<String> getAllTables(String schema)
             throws SchemaNotFoundException {
         Log.info("Retrieving all tables for " + schema);
-        return executeWithClient(schema, new ClientCallable<List<String>>() {
-            @Override
-            public List<String> executeWithClient(AmazonDynamoDB client) {
-                ListTablesResult tables = client.listTables();
-                return tables.getTableNames();
-            }
-        });
+        return getMetadata().getTableNames(schema);
     }
 
     public DynamoTable getTable(SchemaTableName tableName)
             throws TableNotFoundException {
-        return DynamoTable.getTable(metadata, connectorId,
+        return DynamoTable.getTable(getMetadata(), getConnectorId(),
                 tableName.getSchemaName(), tableName.getTableName());
     }
 
@@ -196,5 +190,19 @@ public class DynamoSession implements ConnectorSession {
 
     public interface ClientCallable<T> {
         T executeWithClient(AmazonDynamoDB client);
+    }
+
+    @Override
+    public String toString() {
+        return "DynamoSession{" +
+                "connectorId='" + connectorId + '\'' +
+                ", queryId='" + queryId + '\'' +
+                ", identity=" + identity +
+                ", timeZoneKey=" + timeZoneKey +
+                ", locale=" + locale +
+                ", startTime=" + startTime +
+                ", properties=" + properties +
+                ", metadata=" + metadata +
+                '}';
     }
 }
