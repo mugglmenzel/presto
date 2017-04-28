@@ -15,6 +15,7 @@ package com.facebook.presto.dynamo;
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
+import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughputExceededException;
 import com.amazonaws.services.dynamodbv2.model.ScanRequest;
 import com.amazonaws.services.dynamodbv2.model.ScanResult;
 import com.facebook.presto.dynamo.type.DynamoType;
@@ -66,21 +67,13 @@ public class DynamoRecordCursor implements RecordCursor {
     @Override
     public boolean advanceNextPosition() {
         if (currentRowIndex == -1) {
-            Log.info(String.format("Doing first scan for dynamo table %s",
+            Log.debug(String.format("Doing first scan for dynamo table %s",
                     tableName));
-            ScanRequest scanRequest = new ScanRequest()
-                    .withSegment(partitionId).withTotalSegments(partitionCount)
-                    .withTableName(tableName).withLimit(fetchSize)
-                    .withExclusiveStartKey(lastKeyEvaluated);
-            ScanResult scanResult = dynamo.scan(scanRequest);
-            List<Map<String, AttributeValue>> items = scanResult.getItems();
-            rs.clear();
-            rs.addAll(items);
-            lastKeyEvaluated = scanResult.getLastEvaluatedKey();
-            Log.info(String.format(
+            List<Map<String, AttributeValue>> items = retrieveBatch();
+            Log.debug(String.format(
                     "Finished first scan for dynamo table %s, got %s rows",
                     tableName, items.size()));
-            Log.info("Scanned items: " + items);
+            Log.debug("Scanned items: " + items);
             if (items.size() == 0) {
                 return false;
             } else {
@@ -95,20 +88,9 @@ public class DynamoRecordCursor implements RecordCursor {
             currentRow = rs.get((int) (currentRowIndex - currentRowIndexBase));
             return true;
         } else if (lastKeyEvaluated != null) {
-            Log.info(String.format("Doing next scan for dynamo table %s",
+            Log.debug(String.format("Doing next scan for dynamo table %s",
                     tableName));
-            ScanRequest scanRequest = new ScanRequest()
-                    .withSegment(partitionId).withTotalSegments(partitionCount)
-                    .withTableName(tableName).withLimit(fetchSize)
-                    .withExclusiveStartKey(lastKeyEvaluated);
-            ScanResult scanResult = dynamo.scan(scanRequest);
-            List<Map<String, AttributeValue>> items = scanResult.getItems();
-            rs.clear();
-            rs.addAll(items);
-            lastKeyEvaluated = scanResult.getLastEvaluatedKey();
-            Log.info(String.format("Doing next scan for dynamo table %s",
-                    tableName));
-
+            List<Map<String, AttributeValue>> items = retrieveBatch();
             if (items.size() == 0) {
                 return false;
             } else {
@@ -119,7 +101,7 @@ public class DynamoRecordCursor implements RecordCursor {
                 return true;
             }
         } else {
-            Log.info(String.format("Hit end for dynamo table %s", tableName));
+            Log.debug(String.format("Hit end for dynamo table %s", tableName));
             return false;
         }
     }
@@ -205,5 +187,27 @@ public class DynamoRecordCursor implements RecordCursor {
         AttributeValue attValue = extractAttributeValue(columnName);
         return attValue == null
                 || (attValue.isNULL() != null && attValue.isNULL());
+    }
+
+    private List<Map<String, AttributeValue>> retrieveBatch() {
+        List<Map<String, AttributeValue>> items = new ArrayList<>();
+        try {
+            ScanRequest scanRequest = new ScanRequest()
+                    .withSegment(partitionId).withTotalSegments(partitionCount)
+                    .withTableName(tableName).withLimit(fetchSize)
+                    .withExclusiveStartKey(lastKeyEvaluated);
+            ScanResult scanResult = dynamo.scan(scanRequest);
+            items = scanResult.getItems();
+            rs.clear();
+            rs.addAll(items);
+            lastKeyEvaluated = scanResult.getLastEvaluatedKey();
+        } catch (ProvisionedThroughputExceededException e) {
+            Log.warn("Out of DynamoDB provisioned throughput.", e);
+            throw e;
+        } catch (Exception e) {
+            Log.warn("Exception during request to DynamoDB.", e);
+            throw e;
+        }
+        return items;
     }
 }

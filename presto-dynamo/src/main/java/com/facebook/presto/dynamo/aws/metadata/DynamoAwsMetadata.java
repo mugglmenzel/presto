@@ -94,7 +94,7 @@ public class DynamoAwsMetadata {
     }
 
     public List<String> getTableNames(String region) {
-        Log.info(String.format("Aware of tables %s", tables));
+        Log.debug(String.format("Aware of tables %s", tables));
         return tables.stream()
                 .filter(t -> t.getRegion().equalsIgnoreCase(region))
                 .map(DynamoTableAwsMetadata::getTableName)
@@ -102,7 +102,7 @@ public class DynamoAwsMetadata {
     }
 
     public DynamoTableAwsMetadata getTable(String region, String tableName) {
-        Log.info(String.format("Returning metadata for table %s", tableName));
+        Log.debug(String.format("Returning metadata for table %s", tableName));
         for (DynamoTableAwsMetadata entry : tables) {
             if (entry.getRegion().equalsIgnoreCase(region)
                     && entry.getTableName().equalsIgnoreCase(tableName)) {
@@ -114,7 +114,7 @@ public class DynamoAwsMetadata {
 
     public String getAwsTableName(String region, String tableName) {
         List<String> tableNames = getTableNames(region);
-        Log.info(String.format("Looking in table names %s", tableNames));
+        Log.debug(String.format("Looking in table names %s", tableNames));
         return tableNames.stream()
                 .filter(t -> t.equalsIgnoreCase(tableName))
                 .findFirst().orElse(tableName);

@@ -64,7 +64,7 @@ public class LiveDynamoAwsMetadataProvider implements DynamoAwsMetadataProvider 
     }
 
     private List<DynamoTableAwsMetadata> generateAwsTablesMetadata() {
-        Log.info("Retrieving all tables in all regions...");
+        Log.debug("Retrieving all tables in all regions...");
         List<DynamoTableAwsMetadata> tempTablesMeta = Collections.synchronizedList(new ArrayList<>());
 
         RegionUtils.getRegions().parallelStream().filter(e -> !e.getName().toLowerCase().contains("gov")).forEach(r -> {
@@ -79,7 +79,7 @@ public class LiveDynamoAwsMetadataProvider implements DynamoAwsMetadataProvider 
                             tables = client.listTables(lastKey);
                             lastKey = tables.getLastEvaluatedTableName();
                             for (String table : tables.getTableNames()) {
-                                Log.info(String.format("Adding table %s to the metadata.", table));
+                                Log.debug(String.format("Adding table %s to the metadata.", table));
 
                                 List<DynamoColumnAwsMetadata> cols = new ArrayList<>();
                                 client.scan(new ScanRequest().withLimit(1).withTableName(table)).getItems().stream().findFirst().map(m ->
@@ -87,7 +87,7 @@ public class LiveDynamoAwsMetadataProvider implements DynamoAwsMetadataProvider 
                                                 new AttributeDefinition().withAttributeName(c.getKey()).withAttributeType(detectType(c.getValue()))
                                         )
                                 ).orElse(client.describeTable(table).getTable().getAttributeDefinitions().stream()).forEach(col -> {
-                                    Log.info(String.format("Adding column %s to the metadata.", col));
+                                    Log.debug(String.format("Adding column %s to the metadata.", col));
                                     DynamoColumnAwsMetadata awsCol = new DynamoColumnAwsMetadata();
                                     awsCol.setColumnName(col.getAttributeName().toLowerCase());
                                     awsCol.setColumnType(AwsDynamoToPrestoTypeMapper.map(col.getAttributeType()));
@@ -109,7 +109,7 @@ public class LiveDynamoAwsMetadataProvider implements DynamoAwsMetadataProvider 
             }));
         });
 
-        Log.info("Generated new AWS Metadata: " + tempTablesMeta);
+        Log.debug("Generated new AWS Metadata: " + tempTablesMeta);
         return tempTablesMeta;
     }
 

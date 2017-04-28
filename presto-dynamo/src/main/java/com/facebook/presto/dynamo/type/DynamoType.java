@@ -100,10 +100,10 @@ public enum DynamoType implements FullDynamoType {
     public static Comparable<?> getColumnValue(Map<String, AttributeValue> row,
                                                String columnName, DynamoType dynamoType,
                                                List<DynamoType> typeArguments) {
-        Log.info("Getting column value for column " + columnName + " from row " + row);
+        Log.debug("Getting column value for column " + columnName + " from row " + row);
         String key = columnName;
         AttributeValue attValue = row.keySet().stream().filter(c -> c.equalsIgnoreCase(columnName)).findFirst().map(row::get).orElse(null);
-        Log.info("Got column value " + attValue);
+        Log.debug("Got column value " + attValue);
         if (attValue == null
                 || (attValue.isNULL() != null && attValue.isNULL())) {
             return null;
@@ -144,7 +144,7 @@ public enum DynamoType implements FullDynamoType {
         try {
             return DateTimeFormat.forPattern("yyyy-MM-dd").parseDateTime(value).toDate();
         } catch(IllegalArgumentException e){
-            Log.debug(String.format("Could not parse %s as Date. Message: %s", value, e.getMessage()));
+            Log.warn(String.format("Could not parse %s as Date. Message: %s", value, e.getMessage()));
         }
         return null;
     }
@@ -153,7 +153,7 @@ public enum DynamoType implements FullDynamoType {
         try {
             return DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss").parseDateTime(value).toDate();
         } catch(IllegalArgumentException e){
-            Log.debug(String.format("Could not parse %s as DateTime. Message: %s", value, e.getMessage()));
+            Log.warn(String.format("Could not parse %s as DateTime. Message: %s", value, e.getMessage()));
         }
         return null;
     }

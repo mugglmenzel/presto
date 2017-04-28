@@ -65,7 +65,7 @@ public class DynamoRecordSet
 
     @Override
     public RecordCursor cursor() {
-        Log.info(String.format("Creating record set cursor for table %s...", tableName));
+        Log.debug(String.format("Creating record set cursor for table %s...", tableName));
         return new DynamoRecordCursor(dynamoClient, tableName, partitionId, partitionCount, dynamoTypes, columnNames, fetchSize);
     }
 }

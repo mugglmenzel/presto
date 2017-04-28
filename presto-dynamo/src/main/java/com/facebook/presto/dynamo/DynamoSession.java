@@ -75,7 +75,7 @@ public class DynamoSession implements ConnectorSession {
                                         .getCredentials()).withRegion(Regions.fromName(region));
                     }
                 });
-        Log.info("New DynamoSession created.");
+        Log.debug("New DynamoSession created.");
     }
 
     public static DynamoSession fromConnectorSession(ConnectorSession session) {
@@ -84,7 +84,7 @@ public class DynamoSession implements ConnectorSession {
 
     public AmazonDynamoDB getClient(String schemaName) {
         try {
-            Log.info("Getting client for " + schemaName);
+            Log.debug("Getting client for " + schemaName);
             return clientBySchema.get(schemaName);
         } catch (ExecutionException | UncheckedExecutionException e) {
             throw Throwables.propagate(e.getCause());
