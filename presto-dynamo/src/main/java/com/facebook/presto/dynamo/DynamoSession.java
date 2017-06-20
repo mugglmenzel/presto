@@ -70,9 +70,7 @@ public class DynamoSession implements ConnectorSession {
                 new CacheLoader<String, AmazonDynamoDB>() {
                     @Override
                     public AmazonDynamoDB load(String region) throws Exception {
-                        return new AmazonDynamoDBClient(
-                                new DefaultAWSCredentialsProviderChain()
-                                        .getCredentials()).withRegion(Regions.fromName(region));
+                        return new AmazonDynamoDBClient().withRegion(Regions.fromName(region));
                     }
                 });
         Log.debug("New DynamoSession created.");
